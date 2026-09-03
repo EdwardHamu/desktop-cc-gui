@@ -22,9 +22,6 @@ jobs:
     environment: release
     outputs:
       version: ${{ steps.version.outputs.version }}
-    env:
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-      TAURI_SIGNING_PRIVATE_KEY_B64: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_B64 }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -64,8 +61,8 @@ jobs:
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
         run: |
-          $env:TAURI_SIGNING_PRIVATE_KEY = $env:TAURI_SIGNING_PRIVATE_KEY_B64
-          npm run tauri -- build --config src-tauri/tauri.windows.conf.json --bundles nsis
+          # This workflow publishes a standalone unsigned installer without updater artifacts.
+          npm run tauri -- build --config src-tauri/tauri.windows.conf.json --config '{"bundle":{"createUpdaterArtifacts":false}}' --bundles nsis
 
       - name: Collect EXE artifact
         shell: pwsh

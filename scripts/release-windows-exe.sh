@@ -11,6 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 WORKFLOW="${WORKFLOW:-release-windows-exe.yml}"
 REMOTE="${REMOTE:-origin}"
+EXPECTED_REPOSITORY_URL="https://github.com/EdwardHamu/desktop-cc-gui"
 BRANCH="${BRANCH:-}"
 RELEASE_TAG="${RELEASE_TAG:-}"
 RETRY_ATTEMPTS="${RETRY_ATTEMPTS:-5}"
@@ -105,6 +106,20 @@ valid_positive_integer() {
   [[ "$1" =~ ^[1-9][0-9]*$ ]]
 }
 
+normalize_repository_url() {
+  local url="$1"
+  case "$url" in
+    git@github.com:*)
+      url="https://github.com/${url#git@github.com:}"
+      ;;
+    ssh://git@github.com/*)
+      url="https://github.com/${url#ssh://git@github.com/}"
+      ;;
+  esac
+  url="${url%.git}"
+  printf '%s' "${url%/}"
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --branch)
@@ -147,6 +162,11 @@ done
 
 cd "$ROOT_DIR"
 git rev-parse --show-toplevel >/dev/null 2>&1 || die "Not inside a Git repository"
+REPOSITORY_URL="$(git remote get-url "$REMOTE" 2>/dev/null)" \
+  || die "Git remote not found: ${REMOTE}"
+if [ "$(normalize_repository_url "$REPOSITORY_URL")" != "$EXPECTED_REPOSITORY_URL" ]; then
+  die "Unexpected repository for ${REMOTE}: ${REPOSITORY_URL} (expected ${EXPECTED_REPOSITORY_URL})"
+fi
 if [ -z "$BRANCH" ]; then
   BRANCH="$(git branch --show-current)"
 fi
