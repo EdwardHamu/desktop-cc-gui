@@ -32,6 +32,12 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Setup npm 11
+        shell: pwsh
+        run: |
+          npm install --global npm@11
+          npm --version
+
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
