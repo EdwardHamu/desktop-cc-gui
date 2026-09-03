@@ -1,0 +1,132 @@
+name: Release Windows EXE
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Optional release tag; defaults to v<tauri version>"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-windows-exe-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build_windows:
+    name: windows (x64)
+    runs-on: windows-latest
+    environment: release
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    env:
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      TAURI_SIGNING_PRIVATE_KEY_B64: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_B64 }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+          cache-bin: false
+          shared-key: v1-win-x64-rust
+          cache-on-failure: true
+
+      - name: Configure sccache environment
+        shell: pwsh
+        run: |
+          "RUSTC_WRAPPER=sccache" >> $env:GITHUB_ENV
+          "SCCACHE_GHA_ENABLED=true" >> $env:GITHUB_ENV
+          "SCCACHE_DIR=$env:LOCALAPPDATA\sccache" >> $env:GITHUB_ENV
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.10
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Windows installer
+        shell: pwsh
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+        run: |
+          $env:TAURI_SIGNING_PRIVATE_KEY = $env:TAURI_SIGNING_PRIVATE_KEY_B64
+          npm run tauri -- build --config src-tauri/tauri.windows.conf.json --bundles nsis
+
+      - name: Collect EXE artifact
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem src-tauri/target/release/bundle/nsis -Filter "*-setup.exe" -File)
+          if ($installers.Count -ne 1) {
+            throw "Expected exactly one NSIS installer, found $($installers.Count)."
+          }
+
+          New-Item -ItemType Directory -Force -Path release-artifacts | Out-Null
+          Copy-Item $installers[0].FullName release-artifacts/
+
+      - name: Get version
+        id: version
+        shell: pwsh
+        run: |
+          $conf = Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json
+          "version=$($conf.version)" >> $env:GITHUB_OUTPUT
+
+      - name: Upload Windows EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe
+          path: release-artifacts/*-setup.exe
+          if-no-files-found: error
+
+  publish_release:
+    name: publish Windows EXE release
+    runs-on: ubuntu-latest
+    environment: release
+    needs: build_windows
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Windows EXE
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-exe
+          path: release-artifacts
+
+      - name: Create or update GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
+          VERSION: ${{ needs.build_windows.outputs.version }}
+        run: |
+          set -euo pipefail
+          TAG="${RELEASE_TAG_INPUT:-v${VERSION}}"
+          EXE=$(find release-artifacts -maxdepth 1 -type f -name '*-setup.exe' -print -quit)
+          if [ -z "$EXE" ]; then
+            echo "No NSIS EXE artifact found" >&2
+            exit 1
+          fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" --clobber "$EXE"
+          else
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --generate-notes \
+              --target "$GITHUB_SHA" \
+              "$EXE"
+          fi
