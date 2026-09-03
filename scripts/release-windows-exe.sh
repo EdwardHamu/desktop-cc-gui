@@ -12,6 +12,7 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 WORKFLOW="${WORKFLOW:-release-windows-exe.yml}"
 REMOTE="${REMOTE:-origin}"
 EXPECTED_REPOSITORY_URL="https://github.com/EdwardHamu/desktop-cc-gui"
+GH_REPO="EdwardHamu/desktop-cc-gui"
 BRANCH="${BRANCH:-}"
 RELEASE_TAG="${RELEASE_TAG:-}"
 RETRY_ATTEMPTS="${RETRY_ATTEMPTS:-5}"
@@ -179,7 +180,7 @@ retry_command git push "$REMOTE" "HEAD:${BRANCH}" || die "git push failed"
 COMMIT="$(git rev-parse HEAD)"
 
 echo "Triggering ${WORKFLOW} for ${COMMIT}..."
-WORKFLOW_ARGS=(workflow run "$WORKFLOW" --ref "$BRANCH")
+WORKFLOW_ARGS=(workflow run "$WORKFLOW" --repo "$GH_REPO" --ref "$BRANCH")
 if [ -n "$RELEASE_TAG" ]; then
   WORKFLOW_ARGS+=(-f "release_tag=${RELEASE_TAG}")
 fi
@@ -191,6 +192,7 @@ LOOKUP_DEADLINE=$((SECONDS + RUN_LOOKUP_TIMEOUT_SECONDS))
 while [ -z "$RUN_ID" ]; do
   RUN_ID="$(retry_command gh run list \
     --workflow "$WORKFLOW" \
+    --repo "$GH_REPO" \
     --commit "$COMMIT" \
     --event workflow_dispatch \
     --limit 1 \
@@ -208,6 +210,7 @@ done
 echo "Watching run ${RUN_ID}..."
 while true; do
   RUN_STATE="$(retry_command gh run view "$RUN_ID" \
+    --repo "$GH_REPO" \
     --json status,conclusion,url \
     --jq '(.status // "") + "\t" + (.conclusion // "") + "\t" + (.url // "")')" \
     || die "Unable to read workflow run ${RUN_ID}"

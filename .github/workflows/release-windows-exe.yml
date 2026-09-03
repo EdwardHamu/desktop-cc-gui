@@ -61,8 +61,8 @@ jobs:
         env:
           NODE_OPTIONS: "--max-old-space-size=8192"
         run: |
-          # This workflow publishes a standalone unsigned installer without updater artifacts.
-          npm run tauri -- build --config src-tauri/tauri.windows.conf.json --config '{"bundle":{"createUpdaterArtifacts":false}}' --bundles nsis
+          # Build the Windows-only NSIS installer with updater artifacts disabled.
+          npm run tauri -- build --config src-tauri/tauri.windows.conf.json --config '{"build":{"beforeBuildCommand":"npm run release-notes:generate && tsc && npm exec -- vite build"},"bundle":{"createUpdaterArtifacts":false}}' --bundles nsis
 
       - name: Collect EXE artifact
         shell: pwsh
