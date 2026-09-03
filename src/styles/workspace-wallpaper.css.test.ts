@@ -71,6 +71,9 @@ describe("workspace wallpaper styles", () => {
     expect(globalsCss).toContain(
       "animation: proxy-badge-halo 2.5s steps(10, end) infinite;",
     );
+    expect(globalsCss).toContain(
+      "transition: opacity 200ms steps(6, end), transform 200ms steps(6, end);",
+    );
   });
 
   it("punches through the solid conversation and chrome fills", () => {
