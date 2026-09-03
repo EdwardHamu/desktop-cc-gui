@@ -92,7 +92,7 @@ describe("Sidebar styles", () => {
 
     // Primary active token must be the soft surface-hover mix (not full hover).
     expect(shellCss).toMatch(
-      /--sidebar-color-active-primary:\s*color-mix\(\s*in srgb,\s*var\(--surface-hover\)\s+72%,\s*transparent\s*\)/,
+      /--sidebar-color-active-primary:\s*color-mix\(\s*in srgb,\s*var\(--surface-hover\)\s+30%,\s*transparent\s*\)/,
     );
     expect(ruleBody(sidebarCss, ".thread-row.active")).toMatch(
       /background:\s*var\(--sidebar-color-active-primary\);/,

@@ -77,6 +77,7 @@ describe("WorkingIndicator spinner platform split", () => {
     const { container } = renderWorking();
     const spinner = container.querySelector(".working-spinner-glyph");
     const clock = container.querySelector(".working-timer-clock");
+    expect(WORKING_GLYPH_FRAME_MS).toBe(250);
     expect(spinner).toBeTruthy();
     expect(spinner?.classList.contains("working-spinner")).toBe(true);
     expect(spinner?.classList.contains("working-spinner-dash")).toBe(false);

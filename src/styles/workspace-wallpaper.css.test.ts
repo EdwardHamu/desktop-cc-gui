@@ -25,6 +25,54 @@ describe("workspace wallpaper styles", () => {
     expect(wallpaperImport).toBeGreaterThan(composerImport);
   });
 
+  it("uses one transparent pseudo-element glass treatment for chat chrome", () => {
+    const css = readFileSync(
+      resolve(process.cwd(), "src/styles/workspace-wallpaper.css"),
+      "utf8",
+    ).replace(/\r\n/g, "\n");
+    const mainCss = readFileSync(
+      resolve(process.cwd(), "src/styles/main.css"),
+      "utf8",
+    ).replace(/\r\n/g, "\n");
+    const statusCss = readFileSync(
+      resolve(process.cwd(), "src/styles/messages.status-shell.css"),
+      "utf8",
+    ).replace(/\r\n/g, "\n");
+    const globalsCss = readFileSync(
+      resolve(process.cwd(), "src/styles/globals.css"),
+      "utf8",
+    ).replace(/\r\n/g, "\n");
+
+    expect(css).toContain("@supports ((backdrop-filter: blur(1px))");
+    expect(css).toContain(":root[data-workspace-wallpaper] :is(");
+    expect(css).toContain(":root[data-workspace-wallpaper] .app :is(");
+    expect(css).not.toContain(".app:not(.reduced-transparency)");
+    expect(css).toContain(".chat-input-box-wrapper,");
+    expect(css).toContain(".messages-full,");
+    expect(css).toContain(".main-topbar,");
+    expect(css).toContain(".right-panel-top");
+    expect(css).toContain("background: transparent;");
+    expect(css).toContain("isolation: isolate;");
+    expect(css).toContain("border: 1px solid #ffffff24;");
+    expect(css).toContain("pointer-events: none;");
+    expect(css).toContain("backdrop-filter: blur(10px) saturate(125%);");
+    expect(css).toContain("-webkit-backdrop-filter: blur(10px) saturate(125%);");
+    expect(css).toContain(":is(.messages, .composer, .right-panel)");
+    expect(css).toContain(
+      ':root[data-platform="windows"][data-workspace-wallpaper="fluid"]',
+    );
+    const mainTopbarRule = mainCss.match(/\.main-topbar\s*\{([\s\S]*?)\n\}/)?.[1];
+    expect(mainTopbarRule).toBeDefined();
+    expect(mainTopbarRule).not.toContain("backdrop-filter");
+    const rightPanelRule = mainCss.match(/\.right-panel\s*\{([\s\S]*?)\n\}/)?.[1];
+    expect(rightPanelRule).toBeDefined();
+    expect(rightPanelRule).toContain("border-left: none;");
+    expect(statusCss).toContain("animation: working-dash 2.5s steps(10, end) infinite;");
+    expect(globalsCss).toContain(
+      "animation: proxy-badge-halo 2.5s steps(10, end) infinite;",
+    );
+  });
+
   it("punches through the solid conversation and chrome fills", () => {
     const css = readFileSync(
       resolve(process.cwd(), "src/styles/workspace-wallpaper.css"),
@@ -40,10 +88,9 @@ describe("workspace wallpaper styles", () => {
     );
     expect(css).toContain("background: var(--workspace-wallpaper-veil);");
     expect(css).toContain("--desktop-main-radius: 0;");
-    expect(css).toContain(
-      ":root[data-workspace-wallpaper] .app.layout-desktop .sidebar",
+    expect(css).not.toContain(
+      ":root[data-workspace-wallpaper] .app.layout-desktop .sidebar {\n  border-right",
     );
-    expect(css).toContain("border-right: 1px solid var(--border-subtle);");
     expect(css).toContain(":root[data-workspace-wallpaper] .messages");
     expect(css).toContain(":root[data-workspace-wallpaper] .right-panel");
     expect(css).toContain(":root[data-workspace-wallpaper] .composer");
@@ -139,8 +186,26 @@ describe("workspace wallpaper styles", () => {
       ':root[data-platform="windows"][data-workspace-wallpaper] .settings-embedded :is(',
     );
     expect(css).toContain("--message-inline-code-bg: color-mix(");
-    expect(css).toContain("var(--workspace-wallpaper-wash, #ededf0) 38%");
-    expect(css).toContain("var(--workspace-wallpaper-wash, #ededf0) 44%");
+    expect(css).toContain("var(--workspace-wallpaper-wash, #ededf0) 30%");
+    expect(css).toContain(".app .messages-full {");
+    expect(css).toContain("border-radius: 12px;");
+    expect(css).toContain("padding-inline: 10px;");
+    expect(css).toContain(".chat-input-box *::before");
+    expect(css).toContain("border: none !important;");
+    expect(css).toContain(".context-dual-tooltip,");
+    expect(css).toContain("[data-radix-popper-content-wrapper],");
+    expect(css).toContain("[data-radix-menu-content]");
+    expect(css).toContain(".sidebar-workspace-menu");
+    expect(css).toContain("[data-radix-menu-content] *::before");
+    expect(css).toContain("background: transparent !important;");
+    expect(css).toContain(
+      "[data-radix-menu-content][data-radix-menu-content]",
+    );
+    expect(css).toContain("background-color: transparent !important;");
+    expect(css).toContain(".button-area-right :is(button, [role=\"button\"])");
+    expect(css).toContain("currentColor 30%");
+    expect(css).toContain(".messages-full .message.user .message-bubble");
+    expect(css).not.toContain('[data-slot="table-container"]');
     expect(css).toContain(
       ":root[data-workspace-wallpaper] :is(.message, .thinking-block) .markdown-codeblock",
     );

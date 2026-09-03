@@ -814,7 +814,6 @@ body[data-panel-resizing="true"] .main {
   position: sticky;
   top: 0;
   z-index: 3;
-  backdrop-filter: blur(18px) saturate(1.2);
   min-height: var(--main-topbar-height);
   box-sizing: border-box;
 }
@@ -868,11 +867,6 @@ body[data-panel-resizing="true"] .main {
       var(--titlebar-toggle-side-gap, 12px)
   );
 }
-
-.app.reduced-transparency .main-topbar {
-  backdrop-filter: none;
-}
-
 
 .main-topbar-left {
   display: flex;
@@ -1963,7 +1957,7 @@ body.editor-horizontal-split-resizing * {
   flex-direction: column;
   gap: 0;
   padding-left: 0;
-  border-left: 1px solid color-mix(in srgb, var(--border-subtle) 90%, transparent);
+  border-left: none;
   background: var(--surface-right-panel);
   height: 100%;
   padding-top: 0;

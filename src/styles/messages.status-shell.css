@@ -865,7 +865,7 @@
   stroke-width: 2;
   stroke-linecap: round;
   stroke-dasharray: 18 22;
-  animation: working-dash 0.9s linear infinite;
+  animation: working-dash 2.5s steps(10, end) infinite;
 }
 
 /* Windows: 10 glyph frames. JS mutates textContent; no CSS animation. */

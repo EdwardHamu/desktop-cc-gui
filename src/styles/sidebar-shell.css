@@ -10,7 +10,7 @@
   /* Soft neutral fill — same recipe as .workspace-row.active (not full surface-hover) */
   --sidebar-color-active-primary: color-mix(
     in srgb,
-    var(--surface-hover) 72%,
+    var(--surface-hover) 30%,
     transparent
   );
   --sidebar-color-active-secondary: color-mix(

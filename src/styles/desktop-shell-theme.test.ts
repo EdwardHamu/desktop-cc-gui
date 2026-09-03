@@ -33,6 +33,9 @@ describe("desktop shell theme contract", () => {
     expect(darkThemeCss).toContain("--text-tertiary: var(--text-faint);");
     expect(darkThemeCss).toContain("--color-thinking-text: var(--text-faint);");
     expect(darkThemeCss).toContain("--muted-foreground: oklch(0.78 0 0);");
+    expect(darkThemeCss).toContain("--muted: oklch(0.274 0 0 / 30%);");
+    expect(lightThemeCss).toContain("--muted: oklch(0.967 0.001 286.375 / 30%);");
+    expect(systemThemeCss).toContain("--muted: oklch(0.967 0.001 286.375 / 30%);");
     expect(darkThemeCss).toContain("--surface-messages: oklch(0.145 0 0);");
     expect(darkThemeCss).not.toContain("285.823");
     expect(darkThemeCss).not.toContain("0.004 286");

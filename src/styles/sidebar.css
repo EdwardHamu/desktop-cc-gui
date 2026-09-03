@@ -3140,7 +3140,7 @@
 .thread-runtime-dot--processing {
   background: #2f80ed;
   box-shadow: 0 0 0 3px rgba(47, 128, 237, 0.16);
-  animation: sidebar-thread-status-breathe 1.8s ease-in-out infinite;
+  animation: sidebar-thread-status-breathe 2.5s steps(10, end) infinite;
 }
 
 :root[data-theme="light"] .thread-runtime-dot--processing {
@@ -3177,7 +3177,7 @@
 .thread-runtime-dot--bg-running {
   background: #a55eea;
   box-shadow: 0 0 0 3px rgba(165, 94, 234, 0.16);
-  animation: sidebar-thread-status-breathe 1.8s ease-in-out infinite;
+  animation: sidebar-thread-status-breathe 2.5s steps(10, end) infinite;
 }
 
 :root[data-theme="light"] .thread-runtime-dot--bg-running {

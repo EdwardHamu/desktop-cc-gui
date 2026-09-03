@@ -51,7 +51,7 @@ export const WORKING_GLYPH_FRAMES = [
   "⠇",
   "⠏",
 ] as const;
-export const WORKING_GLYPH_FRAME_MS = 80;
+export const WORKING_GLYPH_FRAME_MS = 250;
 
 function SvgDashSpinner() {
   return (

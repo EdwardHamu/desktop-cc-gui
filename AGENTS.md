@@ -2,6 +2,7 @@
 
 ## 规则优先级
 
+- 本项目不需要lint检测
 - 当前项目代码实现 > 项目内文档（`AGENTS.md` / `dev-guidelines/**` / `openspec/**`）> 全局 `~/.codex/rules/*` / 全局 `~/.codex/AGENTS.md`
 - 文档主体使用中文，technical terms 保留 English
 - AI 写 OpenSpec proposal / design / tasks / spec delta 时，必须采用中英文结合：中文用于业务判断、风险、实施顺序和验收口径，English technical terms、文件名、函数名、命令、metric id、chunk 名保持原文
