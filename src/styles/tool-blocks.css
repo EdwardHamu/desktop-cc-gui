@@ -1131,8 +1131,16 @@
 }
 
 .bash-panel {
-  --bash-panel-bg: color-mix(in srgb, var(--surface-muted, var(--muted)) 55%, var(--surface-card, var(--background)));
-  --bash-panel-head-bg: color-mix(in srgb, var(--surface-card, var(--background)) 88%, var(--border-subtle));
+  --bash-panel-bg: color-mix(
+    in srgb,
+    var(--surface-muted, var(--muted)) 30%,
+    transparent
+  );
+  --bash-panel-head-bg: color-mix(
+    in srgb,
+    var(--surface-card, var(--background)) 30%,
+    transparent
+  );
   --bash-output-fg: var(--text-primary, #1f2328);
   --bash-token-comment: color-mix(in srgb, var(--text-secondary, #656d76) 88%, transparent);
   --bash-token-punctuation: color-mix(in srgb, var(--text-primary, #1f2328) 72%, transparent);
@@ -1151,8 +1159,8 @@
 
 :root[data-theme="dark"] .bash-panel,
 :root[data-theme="dim"] .bash-panel {
-  --bash-panel-bg: color-mix(in srgb, var(--surface-command, #0c0e14) 92%, transparent);
-  --bash-panel-head-bg: color-mix(in srgb, var(--surface-card, #161b22) 72%, transparent);
+  --bash-panel-bg: color-mix(in srgb, var(--surface-command, #0c0e14) 30%, transparent);
+  --bash-panel-head-bg: color-mix(in srgb, var(--surface-card, #161b22) 30%, transparent);
   --bash-output-fg: var(--text-primary, #e6edf3);
   --bash-token-comment: rgba(150, 170, 200, 0.75);
   --bash-token-punctuation: rgba(200, 210, 220, 0.85);
@@ -1166,8 +1174,8 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) .bash-panel {
-    --bash-panel-bg: color-mix(in srgb, var(--surface-command, #0c0e14) 92%, transparent);
-    --bash-panel-head-bg: color-mix(in srgb, var(--surface-card, #161b22) 72%, transparent);
+    --bash-panel-bg: color-mix(in srgb, var(--surface-command, #0c0e14) 30%, transparent);
+    --bash-panel-head-bg: color-mix(in srgb, var(--surface-card, #161b22) 30%, transparent);
     --bash-output-fg: var(--text-primary, #e6edf3);
     --bash-token-comment: rgba(150, 170, 200, 0.75);
     --bash-token-punctuation: rgba(200, 210, 220, 0.85);
@@ -1235,7 +1243,7 @@
 }
 
 .bash-panel-command {
-  background: color-mix(in srgb, var(--bash-panel-bg) 70%, transparent);
+  background: color-mix(in srgb, var(--surface-command, #0c0e14) 30%, transparent);
 }
 
 .bash-command-shell {
@@ -1267,14 +1275,14 @@
   border-radius: 999px;
   border: 1px solid var(--border-subtle);
   padding: 0 8px;
-  background: var(--surface-card);
+  background: color-mix(in srgb, var(--surface-card) 30%, transparent);
   color: var(--text-secondary);
   font-size: var(--message-caption-font-size);
   cursor: pointer;
 }
 
 .bash-command-copy-btn:hover {
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--surface-hover) 30%, transparent);
   color: var(--text-primary);
 }
 

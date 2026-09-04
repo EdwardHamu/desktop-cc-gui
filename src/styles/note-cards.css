@@ -14,9 +14,26 @@
   min-height: 0;
   position: relative;
   overflow: hidden;
+  isolation: isolate;
   container-type: inline-size;
-  background: var(--note-card-surface);
+  background: transparent;
   color: var(--note-card-text-strong);
+}
+
+.workspace-note-cards-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: transparent;
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .workspace-note-cards-panel::before {
+    backdrop-filter: blur(14px) saturate(115%);
+    -webkit-backdrop-filter: blur(14px) saturate(115%);
+  }
 }
 
 .workspace-note-cards-topbar {

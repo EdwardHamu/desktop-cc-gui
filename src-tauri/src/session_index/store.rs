@@ -2137,6 +2137,7 @@ mod tests {
             "rows_from_grok_summaries",
             "rows_from_pi_summaries",
             "rows_from_dsh_summaries",
+            "opencode_source_fingerprint",
             "rows_from_opencode_entries",
         ] {
             assert!(writers.contains(writer), "writers.rs missing {writer}");
@@ -2145,17 +2146,18 @@ mod tests {
             "sync_claude_for_workspace",
             "sync_codex_for_workspace",
             "sync_kimi_for_workspace",
-            "sync_opencode_engine",
             "list_gemini_sessions",
             "list_grok_sessions",
             "list_pi_sessions",
             "list_dsh_sessions",
+            "sync_opencode_engine",
+            "opencode_session_list_core",
         ] {
             assert!(commands.contains(command), "commands.rs missing {command}");
         }
         assert!(
-            commands.contains("SKIP_BACKFILL: opencode"),
-            "OpenCode must declare SKIP_BACKFILL"
+            commands.contains("opencode_index_enabled"),
+            "Session Index OpenCode discovery must follow CLI visibility config"
         );
         assert!(
             commands.contains("const ASYNC_ENGINE_LIST_TIMEOUT"),

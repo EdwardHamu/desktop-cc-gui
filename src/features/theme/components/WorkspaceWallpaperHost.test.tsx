@@ -371,7 +371,7 @@ describe("WorkspaceWallpaperHost", () => {
     });
   });
 
-  it("uses the full fluid profile on Mac and lite on Windows", async () => {
+  it("uses the full fluid profile on Mac", async () => {
     getAppSettings.mockResolvedValueOnce({
       workspaceWallpaper: { mode: "fluid", customImagePath: null },
     });
@@ -379,15 +379,18 @@ describe("WorkspaceWallpaperHost", () => {
     await waitFor(() => {
       expect(screen.getByTestId("first-run-fluid").dataset.profile).toBe("full");
     });
-    cleanup();
+  });
+
+  it("does not mount the fluid wallpaper on Windows", async () => {
     platformMocks.isWindowsPlatform.mockReturnValue(true);
     getAppSettings.mockResolvedValueOnce({
       workspaceWallpaper: { mode: "fluid", customImagePath: null },
     });
     render(<WorkspaceWallpaperHost />);
     await waitFor(() => {
-      expect(screen.getByTestId("first-run-fluid").dataset.profile).toBe("lite");
+      expect(screen.queryByTestId("workspace-wallpaper")).toBeNull();
     });
+    expect(document.documentElement.dataset.workspaceWallpaper).toBeUndefined();
   });
 
   it("forwards sanitized motion and workspace speed to the fluid backdrop", async () => {
@@ -405,19 +408,4 @@ describe("WorkspaceWallpaperHost", () => {
     expect(screen.getByTestId("first-run-fluid").dataset.speed).toBe("9");
   });
 
-  it("applies WebView2 fluid compat only on Windows", async () => {
-    platformMocks.isWindowsPlatform.mockReturnValue(true);
-    getAppSettings.mockResolvedValueOnce({
-      workspaceWallpaper: { mode: "fluid", customImagePath: null },
-    });
-    render(<WorkspaceWallpaperHost />);
-    await waitFor(() => {
-      expect(screen.getByTestId("first-run-fluid").dataset.animate).toBe(
-        "true",
-      );
-    });
-    await waitFor(() => {
-      expect(document.documentElement.dataset.workspaceWallpaper).toBe("fluid");
-    });
-  });
 });

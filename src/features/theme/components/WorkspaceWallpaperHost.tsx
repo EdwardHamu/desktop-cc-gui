@@ -43,10 +43,9 @@ export function WorkspaceWallpaperHost() {
     getWorkspaceWallpaperSnapshot,
   );
   const [hydrated, setHydrated] = useState(false);
-  const [fluidAttached, setFluidAttached] = useState(false);
   const [compatPaused, setCompatPaused] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
-  const windowsFluidCompat = isWindowsPlatform();
+  const windowsFluidDisabled = isWindowsPlatform();
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
@@ -97,15 +96,15 @@ export function WorkspaceWallpaperHost() {
     media?.path ?? "",
     media?.kind ?? "image",
   );
-  const mode =
+  const resolvedMode =
     requestedMode === "custom" && (preview.failed || !media) ? "fluid" : requestedMode;
+  // WebGL fluid wallpaper is disabled on Windows; custom image/video media remains available.
+  const mode = windowsFluidDisabled && resolvedMode === "fluid" ? "none" : resolvedMode;
   const customSrc = mode === "custom" && media ? preview.src : "";
   const isVideo = mode === "custom" && media?.kind === "video";
   const holdVideoStill = wallpaper.paused === true || compatPaused || reducedMotion;
 
-  const wallpaperActive =
-    mode === "custom" ||
-    (mode === "fluid" && (!windowsFluidCompat || fluidAttached));
+  const wallpaperActive = mode !== "none";
   useEffect(() => {
     if (typeof document === "undefined") {
       return undefined;
@@ -262,15 +261,10 @@ export function WorkspaceWallpaperHost() {
     >
       {mode === "fluid" ? (
         <FirstRunFluidBackdrop
-          profile={windowsFluidCompat ? "lite" : "full"}
+          profile="full"
           presetId={wallpaper.fluidPreset ?? DEFAULT_WORKSPACE_FLUID_PRESET}
           motionId={wallpaper.fluidMotion ?? DEFAULT_WORKSPACE_FLUID_MOTION}
           speed={WORKSPACE_FLUID_SPEED}
-          forceAnimate={windowsFluidCompat}
-          deferChase={windowsFluidCompat}
-          onAttachChange={
-            windowsFluidCompat ? setFluidAttached : undefined
-          }
         />
       ) : null}
       {mode === "custom" && customSrc && isVideo ? (

@@ -1341,6 +1341,16 @@ body[data-panel-resizing="true"] .main {
   min-height: 0;
   min-width: 0;
   isolation: isolate;
+  background: transparent;
+}
+
+.content-layer::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: transparent;
 }
 
 .workspace-chat-stack {
@@ -1416,7 +1426,7 @@ body[data-panel-resizing="true"] .main {
   flex: 0 0 calc(var(--note-cards-split-ratio, 66.667) * 1%);
   min-width: 420px;
   border-right: 1px solid var(--border-subtle);
-  background: var(--surface-panel);
+  background: transparent;
 }
 
 .content.is-note-cards-split.is-note-cards-maximized .content-layer--note-cards {

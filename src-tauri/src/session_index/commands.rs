@@ -38,6 +38,13 @@ const DEFAULT_SIDEBAR_INDEX_LIMIT: usize = 5;
 const ASYNC_ENGINE_LIST_TIMEOUT: Duration = Duration::from_secs(3);
 const OPENCODE_INDEX_TIMEOUT: Duration = Duration::from_secs(2);
 
+fn opencode_index_enabled(settings: &crate::types::AppSettings) -> bool {
+    !settings
+        .disabled_cli_engines
+        .iter()
+        .any(|engine| engine.trim().eq_ignore_ascii_case("opencode"))
+}
+
 fn resolve_qoder_index_profiles(
     workspace_path: &PathBuf,
     settings: &QoderDistributionSettings,
@@ -530,6 +537,15 @@ async fn sync_opencode_engine(
     limit: usize,
     force: bool,
 ) -> WriterResult {
+    let settings = state.app_settings.lock().await.clone();
+    if !opencode_index_enabled(&settings) {
+        return WriterResult {
+            skipped_fresh: true,
+            engines: vec!["opencode".into()],
+            ..WriterResult::default()
+        };
+    }
+
     let fingerprint = opencode_source_fingerprint(&workspace_path);
     let skip = !force
         && tokio::task::spawn_blocking({
@@ -1193,4 +1209,18 @@ fn truncate_error(error: &str) -> String {
         return trimmed.to_string();
     }
     trimmed.chars().take(119).collect::<String>() + "…"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::opencode_index_enabled;
+
+    #[test]
+    fn opencode_index_follows_cli_visibility_blacklist() {
+        let mut settings = crate::types::AppSettings::default();
+        assert!(opencode_index_enabled(&settings));
+
+        settings.disabled_cli_engines = vec![" OPENCODE ".to_string()];
+        assert!(!opencode_index_enabled(&settings));
+    }
 }

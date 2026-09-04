@@ -46,7 +46,7 @@
   --text-review-active: rgba(120, 30, 70, 0.9);
   --surface-review-done: rgba(140, 235, 200, 0.35);
   --text-review-done: rgba(20, 90, 60, 0.9);
-  --border-subtle: rgba(24, 24, 27, 0.08);
+  --border-subtle: rgba(24, 24, 27, 0.3);
   --border-muted: rgba(24, 24, 27, 0.06);
   --border-strong: rgba(24, 24, 27, 0.14);
   --border-stronger: rgba(24, 24, 27, 0.18);
