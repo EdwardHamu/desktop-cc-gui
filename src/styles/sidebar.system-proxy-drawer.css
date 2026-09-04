@@ -55,7 +55,7 @@
 
 .sidebar-system-proxy-drawer-close:hover,
 .sidebar-system-proxy-drawer-close:focus-visible {
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--surface-hover) 30%, transparent);
   color: var(--text-strong);
 }
 

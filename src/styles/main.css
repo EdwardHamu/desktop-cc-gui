@@ -274,10 +274,25 @@ body[data-panel-resizing="true"] .main {
   padding: 6px;
   border-radius: 13px;
   border: 1px solid var(--border-muted);
-  background: var(--surface-popover);
+  background: transparent;
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.32);
   z-index: 90;
   transform-origin: top right;
+  isolation: isolate;
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .open-app-command-menu::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    border-radius: inherit;
+    background: transparent;
+    backdrop-filter: blur(10px) saturate(125%);
+    -webkit-backdrop-filter: blur(10px) saturate(125%);
+  }
 }
 
 /* 渐隐渐现：对齐右侧面板溢出菜单（Radix + tw-animate-css fade/zoom）的观感 */
@@ -342,7 +357,7 @@ body[data-panel-resizing="true"] .main {
 .open-app-command-option:hover,
 .open-app-command-option:focus-within,
 .open-app-command-option.is-active {
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--surface-hover) 30%, transparent);
   color: var(--text-stronger);
 }
 
@@ -519,7 +534,7 @@ body[data-panel-resizing="true"] .main {
 
 .open-app-option:hover,
 .open-app-option.is-active {
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--surface-hover) 30%, transparent);
   color: var(--text-stronger);
 }
 
@@ -620,7 +635,7 @@ body[data-panel-resizing="true"] .main {
 
 .launch-script-icon-option.is-selected {
   border-color: var(--border-strong);
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--surface-hover) 30%, transparent);
   color: var(--text-stronger);
 }
 
@@ -789,7 +804,7 @@ body[data-panel-resizing="true"] .main {
 .responsive-icon-toolbar-menu [role="menuitem"]:focus,
 .responsive-icon-toolbar-menu [role="menuitem"][data-highlighted],
 .responsive-icon-toolbar-menu [role="menuitem"].is-active {
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--surface-hover) 30%, transparent);
   color: var(--text-stronger);
   outline: none;
 }
@@ -1140,16 +1155,31 @@ body[data-panel-resizing="true"] .main {
   z-index: 10;
   border-radius: var(--radius-md, 8px);
   border: 1px solid var(--border);
-  background: var(--popover);
+  background: transparent;
   color: var(--popover-foreground);
   padding: 4px;
   display: flex;
   flex-direction: column;
   gap: 4px;
   overflow: hidden;
+  isolation: isolate;
   box-shadow:
     0 4px 6px -1px rgb(0 0 0 / 0.1),
     0 2px 4px -2px rgb(0 0 0 / 0.1);
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .workspace-project-dropdown::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    border-radius: inherit;
+    background: transparent;
+    backdrop-filter: blur(10px) saturate(125%);
+    -webkit-backdrop-filter: blur(10px) saturate(125%);
+  }
 }
 
 .app.layout-desktop.layout-swapped .workspace-project-dropdown {

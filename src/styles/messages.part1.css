@@ -990,11 +990,6 @@
   left: -14px;
   width: calc(100% + 28px);
   height: 60px;
-  background: linear-gradient(
-    to bottom,
-    transparent,
-    var(--color-message-user-bg, var(--surface-bubble-user))
-  );
   pointer-events: none;
   z-index: 1;
 }
@@ -1017,14 +1012,22 @@
     transparent
   );
   border-radius: 0 0 12px 12px;
-  background: var(--color-message-user-bg, var(--surface-bubble-user));
+  background: color-mix(
+    in srgb,
+    var(--surface-hover) 30%,
+    transparent
+  );
   color: color-mix(in srgb, var(--color-message-user-text, #ffffff) 74%, transparent);
   cursor: pointer;
   transition: color 0.2s ease;
 }
 
 .user-collapsible-toggle:hover {
-  background: var(--color-message-user-bg, var(--surface-bubble-user));
+  background: color-mix(
+    in srgb,
+    var(--surface-hover) 30%,
+    transparent
+  );
   color: var(--color-message-user-text, #ffffff);
 }
 

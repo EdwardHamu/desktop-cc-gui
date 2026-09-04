@@ -27,11 +27,11 @@
 
 .sidebar-primary-nav-item:hover,
 .sidebar-primary-nav-item:focus-visible {
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--surface-hover) 30%, transparent);
 }
 
 .sidebar-primary-nav-item.is-active {
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--surface-hover) 30%, transparent);
   font-weight: 500;
 }
 
@@ -42,7 +42,7 @@
 
 .sidebar-primary-nav-mode-item.is-active:hover,
 .sidebar-primary-nav-mode-item.is-active:focus-visible {
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--surface-hover) 30%, transparent);
 }
 
 .sidebar-primary-nav-subitem {
@@ -96,12 +96,12 @@
 
 .sidebar-primary-nav-item-bottom:hover,
 .sidebar-primary-nav-item-bottom:focus-visible {
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--surface-hover) 30%, transparent);
   color: var(--text-strong);
 }
 
 .sidebar-primary-nav-item-bottom.is-active {
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--surface-hover) 30%, transparent);
   color: var(--text-strong);
 }
 
@@ -266,7 +266,7 @@
 .sidebar-settings-dropdown-option:hover,
 .sidebar-settings-dropdown-option:focus-within,
 .sidebar-settings-dropdown-option.is-active {
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--surface-hover) 30%, transparent);
   color: var(--text-strong);
 }
 
@@ -302,7 +302,7 @@
 
 .sidebar-settings-dropdown-item:hover:not(:disabled),
 .sidebar-settings-dropdown-item:focus-visible:not(:disabled) {
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--surface-hover) 30%, transparent);
   color: var(--text-strong);
 }
 
@@ -679,7 +679,7 @@
 }
 
 .workspace-header-content:hover {
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--surface-hover) 30%, transparent);
   color: var(--text-strong);
 }
 
@@ -1105,7 +1105,7 @@
 }
 
 .sidebar-workspace-menu-group-toggle:hover {
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--surface-hover) 30%, transparent);
   color: var(--text-strong);
 }
 
@@ -1251,7 +1251,7 @@
 }
 
 .renderer-context-menu-submenu-trigger.is-open {
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--surface-hover) 30%, transparent);
 }
 
 .renderer-context-menu-submenu-chevron {
@@ -1277,7 +1277,7 @@
 .sidebar-workspace-menu-item:focus-visible,
 .renderer-context-menu-item:hover,
 .renderer-context-menu-item:focus-visible {
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--surface-hover) 30%, transparent);
 }
 
 .sidebar-workspace-menu-item:disabled,
@@ -1486,7 +1486,7 @@
 
 .sidebar-workspace-menu-item-refresh:hover,
 .sidebar-workspace-menu-item-refresh:focus-visible {
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--surface-hover) 30%, transparent);
   color: var(--text-strong);
 }
 
@@ -1722,7 +1722,7 @@
 }
 
 .workspace-add-option:hover {
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--surface-hover) 30%, transparent);
 }
 
 .worktree-section {
@@ -2336,7 +2336,7 @@
 
 .workspace-session-folder-row:hover,
 .workspace-session-folder-row:focus-within {
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--surface-hover) 30%, transparent);
   color: var(--text-strong);
 }
 
@@ -2826,7 +2826,7 @@
 }
 
 .thread-row:hover {
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--surface-hover) 30%, transparent);
   color: var(--text-strong);
 }
 

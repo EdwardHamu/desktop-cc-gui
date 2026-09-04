@@ -101,7 +101,8 @@ describe("desktop shell theme contract", () => {
     const activeItemRule = getCssRuleBlock(mainCss, ".workspace-project-item.is-active");
 
     expect(dropdownRule).toContain("border-radius: var(--radius-md, 8px);");
-    expect(dropdownRule).toContain("background: var(--popover);");
+    expect(dropdownRule).toContain("background: transparent;");
+    expect(dropdownRule).toContain("isolation: isolate;");
     expect(dropdownRule).toContain("color: var(--popover-foreground);");
     expect(dropdownRule).not.toContain("border-radius: 18px;");
     expect(searchRule).toContain("border-bottom: 1px solid var(--border-subtle);");
