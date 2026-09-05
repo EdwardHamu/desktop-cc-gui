@@ -56,12 +56,7 @@
   inset: 0;
   pointer-events: none;
   z-index: 2;
-  background: color-mix(
-    in srgb,
-    var(--workspace-wallpaper-wash, #ededf0)
-      var(--workspace-wallpaper-wash-opacity, 10%),
-    transparent
-  );
+  background: transparent;
   /* Frost is off by default so a custom wallpaper stays sharp. A
    * previous backdrop-filter: blur(var(--frost)) still frosted at 0px
    * in WKWebView, and persisted veilOpacity values kept applying. */

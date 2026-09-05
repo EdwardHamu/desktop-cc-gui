@@ -408,12 +408,7 @@
   gap: 4px;
   padding: 6px 8px;
   border-bottom: 1px solid var(--input-border);
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--context-bar-bg) 92%, white 8%) 0%,
-      var(--context-bar-bg) 100%
-    );
+  background: transparent;
   border-radius: 15px 15px 0 0;
   max-height: 104px;
   width: 100%;
@@ -429,7 +424,7 @@
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
-  background: color-mix(in srgb, var(--input-bg) 70%, var(--context-bar-bg) 30%);
+  background: transparent;
   border: 1px solid var(--input-border);
   border-radius: 12px;
   font-size: 12px;
@@ -451,7 +446,7 @@
   align-items: center;
   justify-content: center;
   margin-top: 0;
-  background: color-mix(in srgb, var(--button-primary) 18%, transparent);
+  background: transparent;
   color: var(--button-primary);
   border-radius: 50%;
   font-size: 10px;
@@ -485,7 +480,7 @@
 /* Shared pending-ack：已发出、等 commit ACK，避免被误读成「还在排队」 */
 .message-queue-item.is-pending-ack {
   border-color: color-mix(in srgb, var(--button-primary) 34%, var(--input-border));
-  background: color-mix(in srgb, var(--button-primary) 8%, var(--input-bg) 92%);
+  background: transparent;
 }
 
 .message-queue-status.is-pending-ack {
@@ -549,16 +544,11 @@
 
 /* Light theme adaptation */
 [data-theme="light"] .message-queue {
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--surface-messages, #ffffff) 84%, var(--surface-control, rgba(15, 23, 36, 0.05))) 0%,
-      color-mix(in srgb, var(--surface-messages, #ffffff) 76%, var(--surface-control, rgba(15, 23, 36, 0.09))) 100%
-    );
+  background: transparent;
 }
 
 [data-theme="light"] .message-queue-item {
-  background: color-mix(in srgb, #ffffff 86%, rgba(15, 23, 36, 0.04));
+  background: transparent;
   border-color: color-mix(in srgb, var(--input-border) 92%, transparent);
   box-shadow:
     0 1px 0 rgba(15, 23, 36, 0.03),
@@ -568,7 +558,7 @@
 /* light 主题下 generic item 选择器优先级更高，需显式保留 pending-ack 高亮 */
 [data-theme="light"] .message-queue-item.is-pending-ack {
   border-color: color-mix(in srgb, var(--button-primary) 40%, var(--input-border));
-  background: color-mix(in srgb, var(--button-primary) 10%, #ffffff 90%);
+  background: transparent;
 }
 
 [data-theme="light"] .message-queue-status.is-pending-ack {

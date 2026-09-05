@@ -116,6 +116,9 @@ describe("workspace wallpaper styles", () => {
       ':root[data-platform="windows"] .workspace-wallpaper::after',
     );
     expect(css).toContain(".workspace-wallpaper::after");
+    expect(css).toContain(
+      ".workspace-wallpaper::after {\n  content: \"\";\n  position: absolute;\n  inset: 0;\n  pointer-events: none;\n  z-index: 2;\n  background: transparent;",
+    );
     expect(css).toContain(".workspace-wallpaper::before");
     expect(css).toContain("--workspace-wallpaper-media-blur");
     expect(css).toContain("--workspace-wallpaper-darken");
