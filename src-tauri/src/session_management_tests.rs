@@ -345,6 +345,28 @@
     }
 
     #[test]
+    fn opencode_catalog_visibility_matches_disabled_cli_engines() {
+        let mut settings = AppSettings::default();
+        assert!(opencode_catalog_enabled(&settings));
+
+        settings.disabled_cli_engines = vec![" OPENCODE ".to_string()];
+        assert!(!opencode_catalog_enabled(&settings));
+
+        let status = build_success_source_status(
+            "opencode",
+            0,
+            SessionCatalogScanMode::Exhaustive,
+            WorkspaceSessionSourceCompleteness::AuthoritativeEmpty,
+            Some("disabled-by-settings"),
+        );
+        assert_eq!(
+            status.completeness,
+            WorkspaceSessionSourceCompleteness::AuthoritativeEmpty
+        );
+        assert_eq!(status.reason.as_deref(), Some("disabled-by-settings"));
+    }
+
+    #[test]
     fn only_explicit_scan_mode_requires_exhaustive_scan() {
         assert!(!query_requires_exhaustive_scan(
             &WorkspaceSessionCatalogQuery::default()

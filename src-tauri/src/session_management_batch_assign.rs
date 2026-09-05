@@ -12,7 +12,7 @@ use super::{
     WorkspaceSessionMutationTarget, WorkspaceSessionScanQuality,
 };
 use crate::engine;
-use crate::types::{WorkspaceEntry, WorkspaceSessionAttributionMode};
+use crate::types::{AppSettings, WorkspaceEntry, WorkspaceSessionAttributionMode};
 
 pub(crate) async fn assign_workspace_session_folders_core(
     workspaces: &Mutex<HashMap<String, WorkspaceEntry>>,
@@ -39,6 +39,7 @@ pub(crate) async fn assign_workspace_session_folders_core(
         SessionCatalogScanMode::Exhaustive,
         WorkspaceSessionAttributionMode::Related,
         WorkspaceSessionScanQuality::Full,
+        &AppSettings::default(),
     )
     .await?;
     let workspaces_snapshot = workspaces.lock().await.clone();

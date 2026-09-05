@@ -356,6 +356,7 @@ async fn build_workspace_scope_catalog_data(
     scan_mode: SessionCatalogScanMode,
     attribution_mode: WorkspaceSessionAttributionMode,
     scan_quality: WorkspaceSessionScanQuality,
+    app_settings: &crate::types::AppSettings,
 ) -> Result<WorkspaceScopeCatalogData, String> {
     let workspace_scope = catalog_workspace_scope(workspaces, workspace_id).await?;
     let workspaces_snapshot = workspaces.lock().await.clone();
@@ -1169,14 +1170,23 @@ async fn build_workspace_scope_catalog_data(
             ));
         }
 
-        match engine::commands::opencode_session_list_core(
-            workspaces,
-            engine_manager,
-            &owner_workspace_id,
-        )
-        .await
-        {
-            Ok(opencode_sessions) => {
+        if !opencode_catalog_enabled(app_settings) {
+            source_statuses.push(build_success_source_status(
+                "opencode",
+                0,
+                scan_mode,
+                WorkspaceSessionSourceCompleteness::AuthoritativeEmpty,
+                Some("disabled-by-settings"),
+            ));
+        } else {
+            match engine::commands::opencode_session_list_core(
+                workspaces,
+                engine_manager,
+                &owner_workspace_id,
+            )
+            .await
+            {
+                Ok(opencode_sessions) => {
                 source_statuses.push(build_success_source_status(
                     "opencode",
                     opencode_sessions.len(),
@@ -1234,8 +1244,8 @@ async fn build_workspace_scope_catalog_data(
                     finalize_existing_catalog_entry(entry, &metadata_by_workspace_id)
                 }));
             }
-            Err(error) => {
-                if error.contains("OpenCode CLI not found") {
+                Err(error) => {
+                    if error.contains("OpenCode CLI not found") {
                     source_statuses.push(build_success_source_status(
                         "opencode",
                         0,
@@ -1244,17 +1254,18 @@ async fn build_workspace_scope_catalog_data(
                         None,
                     ));
                     // Fall through so shared sessions are still collected for this workspace.
-                } else {
-                    log::warn!(
-                    "[session_management.list_workspace_sessions] opencode history unavailable for workspace {}: {}",
-                    owner_workspace_id,
-                    error
-                );
+                    } else {
+                        log::warn!(
+                        "[session_management.list_workspace_sessions] opencode history unavailable for workspace {}: {}",
+                        owner_workspace_id,
+                        error
+                    );
                     partial_sources.push(SESSION_CATALOG_PARTIAL_OPENCODE.to_string());
-                    source_statuses.push(build_degraded_source_status(
-                        "opencode",
-                        SESSION_CATALOG_PARTIAL_OPENCODE,
-                    ));
+                        source_statuses.push(build_degraded_source_status(
+                            "opencode",
+                            SESSION_CATALOG_PARTIAL_OPENCODE,
+                        ));
+                    }
                 }
             }
         }
@@ -1321,4 +1332,11 @@ async fn build_workspace_scope_catalog_data(
         source_statuses,
         hidden_automatic_session_ids,
     })
+}
+
+fn opencode_catalog_enabled(settings: &crate::types::AppSettings) -> bool {
+    !settings
+        .disabled_cli_engines
+        .iter()
+        .any(|engine| engine.trim().eq_ignore_ascii_case("opencode"))
 }

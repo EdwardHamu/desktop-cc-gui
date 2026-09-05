@@ -13,7 +13,7 @@ use crate::local_usage;
 use crate::remote_backend;
 use crate::state::AppState;
 use crate::storage::{read_json_file, with_storage_lock, write_string_atomically};
-use crate::types::{WorkspaceEntry, WorkspaceSessionAttributionMode};
+use crate::types::{AppSettings, WorkspaceEntry, WorkspaceSessionAttributionMode};
 
 #[path = "session_management_archive_evidence.rs"]
 mod session_management_archive_evidence;
@@ -105,7 +105,8 @@ pub(crate) async fn list_workspace_sessions(
     limit: Option<u32>,
     state: State<'_, AppState>,
 ) -> Result<WorkspaceSessionCatalogPage, String> {
-    list_workspace_sessions_core(
+    let app_settings = state.app_settings.lock().await.clone();
+    list_workspace_sessions_core_with_settings(
         &state.workspaces,
         &state.sessions,
         &state.engine_manager,
@@ -114,6 +115,7 @@ pub(crate) async fn list_workspace_sessions(
         query,
         cursor,
         limit,
+        &app_settings,
     )
     .await
 }
@@ -212,12 +214,14 @@ pub(crate) async fn get_workspace_session_projection_summary(
     query: Option<WorkspaceSessionCatalogQuery>,
     state: State<'_, AppState>,
 ) -> Result<WorkspaceSessionProjectionSummary, String> {
-    get_workspace_session_projection_summary_core(
+    let app_settings = state.app_settings.lock().await.clone();
+    get_workspace_session_projection_summary_core_with_settings(
         &state.workspaces,
         &state.engine_manager,
         state.storage_path.as_path(),
         workspace_id,
         query,
+        &app_settings,
     )
     .await
 }
@@ -460,6 +464,31 @@ pub(crate) async fn list_workspace_sessions_core(
     cursor: Option<String>,
     limit: Option<u32>,
 ) -> Result<WorkspaceSessionCatalogPage, String> {
+    list_workspace_sessions_core_with_settings(
+        workspaces,
+        _sessions,
+        engine_manager,
+        storage_path,
+        workspace_id,
+        query,
+        cursor,
+        limit,
+        &AppSettings::default(),
+    )
+    .await
+}
+
+pub(crate) async fn list_workspace_sessions_core_with_settings(
+    workspaces: &Mutex<HashMap<String, WorkspaceEntry>>,
+    _sessions: &Mutex<HashMap<String, std::sync::Arc<crate::codex::WorkspaceSession>>>,
+    engine_manager: &engine::EngineManager,
+    storage_path: &Path,
+    workspace_id: String,
+    query: Option<WorkspaceSessionCatalogQuery>,
+    cursor: Option<String>,
+    limit: Option<u32>,
+    app_settings: &AppSettings,
+) -> Result<WorkspaceSessionCatalogPage, String> {
     let workspace_id = normalize_workspace_id(&workspace_id)?;
     let normalized_query = query.unwrap_or_default();
     let attribution_mode = WorkspaceSessionAttributionMode::from_query(&normalized_query);
@@ -472,6 +501,7 @@ pub(crate) async fn list_workspace_sessions_core(
         scan_mode,
         attribution_mode,
         normalized_query.scan_quality(),
+        app_settings,
     )
     .await?;
     reject_tombstoned_catalog_entries(&mut scope_catalog.entries);
@@ -493,6 +523,25 @@ pub(crate) async fn get_workspace_session_projection_summary_core(
     workspace_id: String,
     query: Option<WorkspaceSessionCatalogQuery>,
 ) -> Result<WorkspaceSessionProjectionSummary, String> {
+    get_workspace_session_projection_summary_core_with_settings(
+        workspaces,
+        engine_manager,
+        storage_path,
+        workspace_id,
+        query,
+        &AppSettings::default(),
+    )
+    .await
+}
+
+pub(crate) async fn get_workspace_session_projection_summary_core_with_settings(
+    workspaces: &Mutex<HashMap<String, WorkspaceEntry>>,
+    engine_manager: &engine::EngineManager,
+    storage_path: &Path,
+    workspace_id: String,
+    query: Option<WorkspaceSessionCatalogQuery>,
+    app_settings: &AppSettings,
+) -> Result<WorkspaceSessionProjectionSummary, String> {
     let workspace_id = normalize_workspace_id(&workspace_id)?;
     let normalized_query = query.unwrap_or_default();
     let attribution_mode = WorkspaceSessionAttributionMode::from_query(&normalized_query);
@@ -509,6 +558,7 @@ pub(crate) async fn get_workspace_session_projection_summary_core(
         scan_mode,
         attribution_mode,
         normalized_query.scan_quality(),
+        app_settings,
     )
     .await?;
     reject_tombstoned_catalog_entries(&mut scope_catalog.entries);
@@ -614,6 +664,7 @@ pub(crate) async fn delete_workspace_sessions_core(
         SessionCatalogScanMode::Exhaustive,
         WorkspaceSessionAttributionMode::Related,
         WorkspaceSessionScanQuality::Full,
+        &AppSettings::default(),
     )
     .await?;
     let workspaces_snapshot = workspaces.lock().await.clone();
@@ -2965,6 +3016,7 @@ pub(crate) async fn assign_workspace_session_folder_core(
         SessionCatalogScanMode::Exhaustive,
         WorkspaceSessionAttributionMode::Related,
         WorkspaceSessionScanQuality::Full,
+        &AppSettings::default(),
     )
     .await?;
     let workspaces_snapshot = workspaces.lock().await.clone();

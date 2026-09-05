@@ -232,7 +232,7 @@
 }
 
 .proxy-status-badge--animated .proxy-status-badge__icon {
-  animation: proxy-badge-zap 1.05s ease-in-out infinite;
+  animation: proxy-badge-zap 2.5s steps(10, end) infinite;
 }
 
 .proxy-status-badge--animated .proxy-status-badge__halo {

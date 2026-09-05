@@ -5109,7 +5109,8 @@ impl DaemonState {
         cursor: Option<String>,
         limit: Option<u32>,
     ) -> Result<session_management::WorkspaceSessionCatalogPage, String> {
-        session_management::list_workspace_sessions_core(
+        let app_settings = self.app_settings.lock().await.clone();
+        session_management::list_workspace_sessions_core_with_settings(
             &self.workspaces,
             &self.sessions,
             &self.engine_manager,
@@ -5118,6 +5119,7 @@ impl DaemonState {
             query,
             cursor,
             limit,
+            &app_settings,
         )
         .await
     }
@@ -5216,12 +5218,14 @@ impl DaemonState {
         workspace_id: String,
         query: Option<session_management::WorkspaceSessionCatalogQuery>,
     ) -> Result<session_management::WorkspaceSessionProjectionSummary, String> {
-        session_management::get_workspace_session_projection_summary_core(
+        let app_settings = self.app_settings.lock().await.clone();
+        session_management::get_workspace_session_projection_summary_core_with_settings(
             &self.workspaces,
             &self.engine_manager,
             self.storage_path.as_path(),
             workspace_id,
             query,
+            &app_settings,
         )
         .await
     }
