@@ -131,7 +131,7 @@
 :root[data-workspace-wallpaper][data-theme="dim"] .app.reduced-transparency {
   --workspace-wallpaper-wash: #121212;
   --workspace-wallpaper-wash-opacity: 10%;
-  --workspace-wallpaper-veil: color-mix(in srgb, #121212 16%, transparent);
+  --workspace-wallpaper-veil: color-mix(in srgb, #121212 0%, transparent);
   --desktop-shell-background: var(--workspace-wallpaper-veil);
   --desktop-sidebar-background: var(--workspace-wallpaper-veil);
   --desktop-main-background: var(--workspace-wallpaper-veil);
