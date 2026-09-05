@@ -68,10 +68,8 @@ describe("workspace wallpaper styles", () => {
     expect(rightPanelRule).toBeDefined();
     expect(rightPanelRule).toContain("border-left: none;");
     expect(statusCss).toContain("animation: working-dash 2.5s steps(10, end) infinite;");
-    expect(globalsCss).toContain(
-      "animation: proxy-badge-halo 2.5s steps(10, end) infinite;",
-    );
-    expect(globalsCss).toContain(
+    expect(globalsCss).not.toContain("animation: proxy-badge");
+    expect(globalsCss).not.toContain(
       "transition: opacity 200ms steps(6, end), transform 200ms steps(6, end);",
     );
   });

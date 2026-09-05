@@ -3,9 +3,7 @@
    ============================================================ */
 .completion-dropdown {
   position: fixed;
-  /* Fixed portal escapes .chat-input-box; fall back to popover surface so
-     system-light never lands on the dark #252526 hard fallback alone. */
-  background: var(--dropdown-bg, var(--surface-popover, var(--popover, #252526)));
+  background: transparent;
   border: 1px solid var(--dropdown-border, var(--border-strong, transparent));
   border-radius: 6px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
@@ -13,6 +11,24 @@
   max-height: 300px;
   overflow-y: auto;
   min-width: 280px;
+  isolation: isolate;
+}
+
+.completion-dropdown::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: inherit;
+  background: transparent;
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .completion-dropdown::before {
+    backdrop-filter: blur(14px) saturate(115%);
+    -webkit-backdrop-filter: blur(14px) saturate(115%);
+  }
 }
 
 .completion-dropdown--prompt {

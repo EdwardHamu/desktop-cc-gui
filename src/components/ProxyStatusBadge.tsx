@@ -4,7 +4,6 @@ type ProxyStatusBadgeProps = {
   proxyUrl?: string | null;
   label?: string;
   variant?: "compact" | "prominent";
-  animated?: boolean;
   className?: string;
   title?: string;
 };
@@ -29,17 +28,15 @@ export function ProxyStatusBadge({
   proxyUrl = null,
   label = "Proxy",
   variant = "compact",
-  animated = false,
   className = "",
   title,
 }: ProxyStatusBadgeProps) {
   const host = normalizeProxyHost(proxyUrl);
   const resolvedTitle = title ?? (host ? `${label} · ${host}` : label);
-  const stateClassName = animated ? "proxy-status-badge--animated" : "";
 
   return (
     <span
-      className={`proxy-status-badge proxy-status-badge--${variant}${stateClassName ? ` ${stateClassName}` : ""}${className ? ` ${className}` : ""}`}
+      className={`proxy-status-badge proxy-status-badge--${variant}${className ? ` ${className}` : ""}`}
       title={resolvedTitle}
       aria-label={resolvedTitle}
     >

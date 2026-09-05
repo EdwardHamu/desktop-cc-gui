@@ -1752,7 +1752,6 @@ describe("Messages", () => {
     const badge = container.querySelector(".working .working-proxy-badge");
     expect(badge).toBeTruthy();
     expect(badge?.textContent ?? "").toBe("");
-    expect(badge?.classList.contains("proxy-status-badge--animated")).toBe(true);
     expect(badge?.getAttribute("aria-label") ?? "").toContain("127.0.0.1:7890");
   });
 

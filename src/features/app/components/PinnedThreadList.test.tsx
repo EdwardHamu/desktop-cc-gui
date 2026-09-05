@@ -589,9 +589,6 @@ describe("PinnedThreadList", () => {
     const badge = row?.querySelector(".thread-proxy-badge");
     expect(badge).toBeTruthy();
     expect(badge?.textContent ?? "").toBe("");
-    expect(badge?.classList.contains("proxy-status-badge--animated")).toBe(
-      false,
-    );
   });
 
   it("reuses workspace subagent row rendering for pinned children", () => {

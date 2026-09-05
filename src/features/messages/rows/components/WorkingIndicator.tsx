@@ -314,7 +314,6 @@ export const WorkingIndicator = memo(function WorkingIndicator({
               proxyUrl={proxyUrl}
               label={t("messages.proxyBadge")}
               variant="prominent"
-              animated
               className="working-proxy-badge"
             />
           )}
