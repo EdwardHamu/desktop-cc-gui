@@ -135,7 +135,8 @@ fn build_state(home: &std::path::Path) -> (AppState, Arc<Capture>) {
         processes: Arc::new(ProcessRegistry::default()),
         emitters: BroadcastEmit::new(emitter),
         web: ccgui_next_lib::web::WebAccessState::default(),
-        dsh_host: ccgui_next_lib::dsh_host::DshHostState::default(),
+        relay: ccgui_next_lib::relay::RelayState::default(),
+        dsh_host: Arc::new(ccgui_next_lib::dsh_host::DshHostState::default()),
     };
     (state, capture)
 }
