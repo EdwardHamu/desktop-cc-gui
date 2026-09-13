@@ -148,8 +148,41 @@ fn claude_project_dirs(base: &Path, workspace: &Path) -> Vec<PathBuf> {
     out
 }
 
+/// v0.9 managed provider homes (`~/.ccgui/<engine>-provider-homes/<id>/`):
+/// sessions launched under a managed provider profile wrote into these
+/// CLI-home-shaped dirs. Scanned so users upgrading from v0.9 keep that
+/// history instead of watching it vanish from the sidebar.
+fn legacy_provider_homes(dir_name: &str) -> Vec<PathBuf> {
+    let root = crate::paths::legacy_home().join(dir_name);
+    let Ok(entries) = std::fs::read_dir(&root) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect()
+}
+
 fn discover_kimi(workspace: &Path) -> Vec<SessionFile> {
-    let base = crate::engine::engine_home(None, ".kimi-code");
+    // Current CLI home, the v0.9-era CLI home (`~/.kimi`, KIMI_HOME
+    // override), and every v0.9 managed provider home.
+    let mut homes = vec![crate::engine::engine_home(None, ".kimi-code")];
+    homes.push(crate::engine::engine_home(Some("KIMI_HOME"), ".kimi"));
+    homes.extend(legacy_provider_homes("kimi-provider-homes"));
+    let mut out = Vec::new();
+    let mut seen_paths = std::collections::HashSet::new();
+    for base in homes {
+        for file in discover_kimi_in(&base, workspace) {
+            if seen_paths.insert(file.file_path.clone()) {
+                out.push(file);
+            }
+        }
+    }
+    out
+}
+
+fn discover_kimi_in(base: &Path, workspace: &Path) -> Vec<SessionFile> {
     let Ok(raw) = std::fs::read_to_string(base.join("session_index.jsonl")) else {
         return Vec::new();
     };
@@ -219,8 +252,21 @@ fn grok_url_decode(encoded: &str) -> String {
 }
 
 fn discover_grok(workspace: &Path) -> Vec<SessionFile> {
-    let sessions_root = crate::engine::engine_home(None, ".grok").join("sessions");
-    let Ok(cwd_dirs) = std::fs::read_dir(&sessions_root) else {
+    let mut roots = vec![crate::engine::engine_home(None, ".grok").join("sessions")];
+    roots.extend(
+        legacy_provider_homes("grok-provider-homes")
+            .into_iter()
+            .map(|home| home.join("sessions")),
+    );
+    let mut out = Vec::new();
+    for root in roots {
+        out.extend(discover_grok_in(&root, workspace));
+    }
+    out
+}
+
+fn discover_grok_in(sessions_root: &Path, workspace: &Path) -> Vec<SessionFile> {
+    let Ok(cwd_dirs) = std::fs::read_dir(sessions_root) else {
         return Vec::new();
     };
     let mut out = Vec::new();
@@ -465,25 +511,30 @@ fn identify_head(engine: &str, path: &Path) -> Option<(String, String)> {
 
 /// Codex rollout files (readdir only, no content reads).
 fn codex_candidates() -> Vec<PathBuf> {
-    let home = crate::engine::codex_home();
+    // Beyond the active home, every v0.9 managed provider home keeps its
+    // own sessions tree.
+    let mut homes = vec![crate::engine::codex_home()];
+    homes.extend(legacy_provider_homes("codex-provider-homes"));
     let mut out = Vec::new();
-    for root in [home.join("sessions"), home.join("archived_sessions")] {
-        let mut stack = vec![root];
-        while let Some(dir) = stack.pop() {
-            let Ok(entries) = std::fs::read_dir(&dir) else {
-                continue;
-            };
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    stack.push(path);
-                } else if path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|n| n.starts_with("rollout-") && n.ends_with(".jsonl"))
-                    .unwrap_or(false)
-                {
-                    out.push(path);
+    for home in homes {
+        for root in [home.join("sessions"), home.join("archived_sessions")] {
+            let mut stack = vec![root];
+            while let Some(dir) = stack.pop() {
+                let Ok(entries) = std::fs::read_dir(&dir) else {
+                    continue;
+                };
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        stack.push(path);
+                    } else if path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n.starts_with("rollout-") && n.ends_with(".jsonl"))
+                        .unwrap_or(false)
+                    {
+                        out.push(path);
+                    }
                 }
             }
         }
@@ -899,6 +950,9 @@ fn prune_codex_sessions_outside_home(db: &crate::db::Db) -> Result<bool, String>
         }
     }
     let home = crate::engine::codex_home();
+    // v0.9 provider-home sessions live outside any codex home but stay
+    // valid history; pruning them would re-hide upgraded users' sessions.
+    let legacy_root = crate::paths::legacy_home().join("codex-provider-homes");
     let paths: Vec<(String, String)> = {
         let conn = db.0.lock();
         let mut stmt = conn
@@ -918,7 +972,7 @@ fn prune_codex_sessions_outside_home(db: &crate::db::Db) -> Result<bool, String>
     };
     let dead: Vec<String> = paths
         .into_iter()
-        .filter(|(_, path)| !path_is_under(path, &home))
+        .filter(|(_, path)| !path_is_under(path, &home) && !path_is_under(path, &legacy_root))
         .map(|(id, _)| id)
         .collect();
     if dead.is_empty() {
@@ -1327,6 +1381,161 @@ mod tests {
         assert_eq!(found[0].session_id, "s1");
 
         std::fs::remove_dir_all(&home).ok();
+    }
+
+    fn write_kimi_wire_session(index_dir: &Path, session_dir: &Path, workspace: &Path, session_id: &str) {
+        let wire = session_dir.join("agents").join("main");
+        std::fs::create_dir_all(index_dir).unwrap();
+        std::fs::create_dir_all(&wire).unwrap();
+        std::fs::write(wire.join("wire.jsonl"), "{}\n").unwrap();
+        let line = format!(
+            "{{\"workDir\":\"{}\",\"sessionId\":\"{session_id}\",\"sessionDir\":\"{}\"}}",
+            workspace.to_string_lossy().replace('\\', "\\\\"),
+            session_dir.to_string_lossy().replace('\\', "\\\\"),
+        );
+        std::fs::write(index_dir.join("session_index.jsonl"), format!("{line}\n")).unwrap();
+    }
+
+    /// v0.9 upgrade path: sessions under the old CLI home (~/.kimi) and under
+    /// managed provider homes (~/.ccgui/kimi-provider-homes/<id>/) must both
+    /// stay discoverable next to the current ~/.kimi-code home.
+    #[test]
+    fn discover_kimi_reads_legacy_and_provider_homes() {
+        let home = scratch_dir("discover-kimi-legacy");
+        let workspace = home.join("ws");
+        std::fs::create_dir_all(&workspace).unwrap();
+        write_kimi_wire_session(&home.join(".kimi"), &home.join("old-cli-session"), &workspace, "old-cli");
+        let provider_home = home.join(".ccgui").join("kimi-provider-homes").join("p1");
+        write_kimi_wire_session(&provider_home, &home.join("managed-session"), &workspace, "managed");
+
+        let _guard = HomeGuard::set(&home);
+        // A stray KIMI_HOME on the host would redirect the legacy home.
+        let prev_kimi_home = std::env::var_os("KIMI_HOME");
+        std::env::remove_var("KIMI_HOME");
+        let found = discover_kimi(&workspace);
+        match &prev_kimi_home {
+            Some(value) => std::env::set_var("KIMI_HOME", value),
+            None => std::env::remove_var("KIMI_HOME"),
+        }
+        let mut ids: Vec<&str> = found.iter().map(|f| f.session_id.as_str()).collect();
+        ids.sort();
+        assert_eq!(ids, ["managed", "old-cli"]);
+
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    /// v0.9 upgrade path: grok sessions written under a managed provider home
+    /// keep their <encoded-cwd>/<session>/chat_history.jsonl shape.
+    #[test]
+    fn discover_grok_reads_provider_homes() {
+        let home = scratch_dir("discover-grok-legacy");
+        let workspace = home.join("ws");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let encoded: String = workspace
+            .to_string_lossy()
+            .bytes()
+            .map(|b| format!("%{b:02X}"))
+            .collect();
+        let session_dir = home
+            .join(".ccgui")
+            .join("grok-provider-homes")
+            .join("p1")
+            .join("sessions")
+            .join(encoded)
+            .join("g1");
+        std::fs::create_dir_all(&session_dir).unwrap();
+        std::fs::write(session_dir.join("chat_history.jsonl"), "{}\n").unwrap();
+
+        let _guard = HomeGuard::set(&home);
+        let found = discover_grok(&workspace);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].session_id, "g1");
+
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    /// v0.9 upgrade path: codex rollouts under managed provider homes are
+    /// enumerated alongside the active home's sessions.
+    #[test]
+    fn codex_candidates_include_provider_homes() {
+        let home = scratch_dir("codex-candidates-legacy");
+        let active = home.join(".codex").join("sessions").join("2026").join("09").join("01");
+        let managed = home
+            .join(".ccgui")
+            .join("codex-provider-homes")
+            .join("p1")
+            .join("sessions")
+            .join("2026")
+            .join("08")
+            .join("19");
+        std::fs::create_dir_all(&active).unwrap();
+        std::fs::create_dir_all(&managed).unwrap();
+        std::fs::write(active.join("rollout-2026-09-01T00-00-00-new.jsonl"), "").unwrap();
+        std::fs::write(managed.join("rollout-2026-08-19T00-00-00-old.jsonl"), "").unwrap();
+
+        let _guard = HomeGuard::set(&home);
+        let prev_codex_home = std::env::var_os("CODEX_HOME");
+        std::env::remove_var("CODEX_HOME");
+        let found = codex_candidates();
+        match &prev_codex_home {
+            Some(value) => std::env::set_var("CODEX_HOME", value),
+            None => std::env::remove_var("CODEX_HOME"),
+        }
+        let names: Vec<String> = found
+            .iter()
+            .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+            .collect();
+        assert!(names.iter().any(|n| n.contains("new")));
+        assert!(names.iter().any(|n| n.contains("old")));
+
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    /// A custom codex home must not prune sessions indexed from a v0.9
+    /// managed provider home — they live outside every codex home by design.
+    #[test] 
+    fn prune_codex_outside_home_keeps_provider_home_sessions() -> Result<(), String> {
+        let home = scratch_dir("prune-codex-legacy");
+        let _guard = HomeGuard::set(&home);
+        let legacy_dir = home.join(".ccgui").join("codex-provider-homes").join("p1").join("sessions");
+        let other_dir = home.join("elsewhere");
+        std::fs::create_dir_all(&legacy_dir).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(&other_dir).map_err(|e| e.to_string())?;
+        let legacy_file = legacy_dir.join("rollout-old.jsonl");
+        let other_file = other_dir.join("rollout-stray.jsonl");
+        std::fs::write(&legacy_file, "").map_err(|e| e.to_string())?;
+        std::fs::write(&other_file, "").map_err(|e| e.to_string())?;
+
+        let db = crate::db::Db::open_at(&home.join("app.db")).map_err(|e| e.to_string())?;
+        {
+            let conn = db.0.lock();
+            for (id, path) in [("keep", &legacy_file), ("drop", &other_file)] {
+                conn.execute(
+                    "INSERT INTO sessions(engine, session_id, workspace_path, file_path, file_size, file_mtime_ms, title) VALUES('codex', ?1, '/ws', ?2, 0, 0, 't')",
+                    rusqlite::params![id, path.to_string_lossy().to_string()],
+                )
+                .map_err(|e| e.to_string())?;
+            }
+        }
+        let removed = prune_codex_sessions_outside_home(&db)?;
+        assert!(removed);
+        let remaining: Vec<String> = {
+            let conn = db.0.lock();
+            let mut stmt = conn
+                .prepare("SELECT session_id FROM sessions ORDER BY session_id")
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map([], |r| r.get(0))
+                .map_err(|e| e.to_string())?
+                .collect::<rusqlite::Result<Vec<String>>>()
+                .map_err(|e| e.to_string())?;
+            rows
+        };
+        assert_eq!(remaining, ["keep"]);
+
+        drop(db);
+        std::fs::remove_dir_all(&home).ok();
+        Ok(())
     }
 
     /// End-to-end: an omp file with a prepended title line is attributed to
