@@ -221,7 +221,7 @@ jobs:
           test -n "$APPIMAGE"
           mkdir -p "$HOME/.tauri"
           printf '%s' "$TAURI_SIGNING_PRIVATE_KEY_B64" > "$HOME/.tauri/ccgui.key"
-          pnpm exec tauri signer sign -- \
+          pnpm exec tauri signer sign \
             -f "$HOME/.tauri/ccgui.key" \
             -p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" \
             "$APPIMAGE"
