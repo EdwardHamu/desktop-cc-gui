@@ -96,6 +96,132 @@ export function extractSubagentTaskInfo(message: Message): {
   return { label, subagentType, detail };
 }
 
+/** The subagents one delegation call names, in call order. A `task` call
+ *  spells out the agents it spawns under `tasks[]`; a `hub` wait names the
+ *  ids it is waiting on. A call that names none (a roster check, a bare
+ *  delegation) is left to the caller as a single step of its own. */
+export function subagentRefsFromArgs(args: unknown): {
+  id: string;
+  label?: string;
+  agent?: string;
+  detail?: string;
+}[] {
+  if (!args || typeof args !== "object") return [];
+  const record = args as Record<string, unknown>;
+  const refs: { id: string; label?: string; agent?: string; detail?: string }[] = [];
+  const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+  const array = (value: unknown): unknown[] => {
+    if (Array.isArray(value)) return value;
+    if (typeof value !== "string") return [];
+    try {
+      const parsed: unknown = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+  for (const entry of array(record.tasks)) {
+    if (!entry || typeof entry !== "object") continue;
+    const row = entry as Record<string, unknown>;
+    // `name` is the job id the run reports back ("CoreInvokeFilterParse");
+    // older shapes only carry an id.
+    const id = text(row.name) ?? text(row.id) ?? text(row.label);
+    if (!id) continue;
+    const task = text(row.task) ?? text(row.prompt);
+    refs.push({
+      id,
+      label: text(row.description) ?? id,
+      agent: text(row.agent) ?? text(row.subagent_type),
+      // The assignment is what the panel shows on click, so it stays whole.
+      detail: task,
+    });
+  }
+  for (const entry of array(record.ids)) {
+    const id = text(entry);
+    // hub background job handles are processes/waits, not delegated agents.
+    if (id && !/^bg_/i.test(id)) refs.push({ id });
+  }
+  return refs;
+}
+
+function agentState(status: unknown): AgentTaskStepState | undefined {
+  if (typeof status !== "string") return undefined;
+  switch (status.trim().toLowerCase()) {
+    case "active":
+    case "in_progress":
+    case "pending":
+    case "queued":
+    case "running":
+      return "active";
+    case "canceled":
+    case "cancelled":
+    case "complete":
+    case "completed":
+    case "failed":
+    case "idle":
+    case "parked":
+    case "stopped":
+      return "complete";
+    default:
+      return undefined;
+  }
+}
+
+/** Job states a `hub` result reports about itself: `details.jobs` on a wait,
+ *  `details.peers` on a roster, `details.progress` on a dispatch. Unknown
+ *  states are ignored instead of being guessed terminal. */
+function jobStatesFromResult(result: unknown): Map<string, AgentTaskStepState> {
+  const states = new Map<string, AgentTaskStepState>();
+  if (!result || typeof result !== "object") return states;
+  const details = (result as Record<string, unknown>).details;
+  if (!details || typeof details !== "object") return states;
+  const buckets = ["jobs", "peers", "progress"].map((key) =>
+    (details as Record<string, unknown>)[key],
+  );
+  for (const bucket of buckets) {
+    if (!Array.isArray(bucket)) continue;
+    for (const entry of bucket) {
+      if (!entry || typeof entry !== "object") continue;
+      const row = entry as Record<string, unknown>;
+      const id = typeof row.id === "string" ? row.id.trim() : "";
+      const state = agentState(row.status);
+      if (id && state) states.set(id, state);
+    }
+  }
+  return states;
+}
+
+/** An unfiltered `hub jobs` result is the complete process-local roster. */
+function isCompleteJobsRoster(message: Message): boolean {
+  if (!message.result || typeof message.result !== "object") return false;
+  const details = (message.result as Record<string, unknown>).details;
+  if (!details || typeof details !== "object") return false;
+  const args = message.args && typeof message.args === "object"
+    ? message.args as Record<string, unknown>
+    : {};
+  const roster = details as Record<string, unknown>;
+  return roster.op === "jobs" &&
+    // Any filter arg (`ids`, a future `status`, …) means a partial roster,
+    // not the complete one — only a bare `op`-only call qualifies.
+    Object.keys(args).every((key) => key === "op") &&
+    Array.isArray(roster.jobs) &&
+    roster.jobs.every((entry) => {
+      if (!entry || typeof entry !== "object") return false;
+      const row = entry as Record<string, unknown>;
+      return typeof row.id === "string" && !!row.id.trim() && agentState(row.status) !== undefined;
+    });
+}
+
+/** Tool name head of a tool row's label ("task · Dispatching…" → "task").
+ *  The tag a row falls back to when the harness names no agent kind: the
+ *  `task` tool writes `agent` on some dispatches (scout batches) and omits it
+ *  on others (task batches), and a row with no tag at all says nothing about
+ *  where it came from. */
+function toolHead(text: string): string | undefined {
+  const head = text.split("·")[0].trim().split(/[\s/\\]+/)[0];
+  return head && head.length <= 24 ? head : undefined;
+}
+
 /** Edit-class tool labels (write/edit/patch families) — the file
  * modification surface. Mirrors the edit branch of ProcessDisclosure's
  * toolTypeKey. */
@@ -127,6 +253,11 @@ function currentTurnStart(messages: Message[]): number {
  * Fold subagent tool rows across the session into panel steps.
  * Steps in prior turns are settled/complete; current-turn steps stay active
  * while streaming until tool result returns or subsequent assistant response arrives.
+ *
+ * A call is counted by the subagents it names, not by the call itself: one
+ * `task` can dispatch four agents ("Spawned 4 background agents") and one
+ * `hub` wait can cover them again, so a per-call count showed 2 where four
+ * were running. Ids name the subagent, so a later wait on them adds nothing.
  */
 export function deriveAgentTaskSteps(
   messages: Message[],
@@ -135,11 +266,48 @@ export function deriveAgentTaskSteps(
 ): AgentTaskStep[] {
   const turnStart = currentTurnStart(messages);
   const blockingSpawn = engine === "claude";
+
+  // Pass 1 — one state per named agent. A dispatch only *starts* agents, so
+  // its own "Spawned 3 background agents" result says nothing about finishing;
+  // the later `hub` snapshots are the only rows that do, and they override
+  // whatever the dispatch implied. Without this a settled spawn result left
+  // every agent reading 已完成 while the harness was still reporting them
+  // running.
+  const states = new Map<string, AgentTaskStepState>();
+  for (let i = 0; i < messages.length; i++) {
+    const message = messages[i];
+    if (message.role !== "tool") continue;
+    const refs = subagentRefsFromArgs(message.args);
+    if (refs.length > 0) {
+      const spawned = i >= turnStart && streaming ? "active" : "complete";
+      for (const ref of refs) {
+        if (!states.has(ref.id)) states.set(ref.id, spawned);
+      }
+    }
+    const snapshot = jobStatesFromResult(message.result);
+    if (isCompleteJobsRoster(message)) {
+      for (const [id, state] of states) {
+        if (state === "active" && !snapshot.has(id)) states.set(id, "complete");
+      }
+    }
+    for (const [id, state] of snapshot) states.set(id, state);
+  }
+
+  // Pass 2 — display order: one step per agent, first naming wins.
   const steps: AgentTaskStep[] = [];
+  const seen = new Set<string>();
 
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i];
-    if (message.role !== "tool" || !isSubagentToolLabel(message.text)) continue;
+    if (message.role !== "tool") continue;
+    // Naming ids is itself proof of delegation (`hub` waits carry a generic
+    // "hub ·…" label the name heuristic cannot classify).
+    const refs = subagentRefsFromArgs(message.args);
+    const declaresTaskList =
+      !!message.args &&
+      typeof message.args === "object" &&
+      Object.prototype.hasOwnProperty.call(message.args, "tasks");
+    if (refs.length === 0 && (declaresTaskList || !isSubagentToolLabel(message.text))) continue;
 
     const isCurrentTurn = i >= turnStart;
     let settled = !isCurrentTurn || !streaming;
@@ -163,13 +331,28 @@ export function deriveAgentTaskSteps(
     }
 
     const info = extractSubagentTaskInfo(message);
-    steps.push({
-      key: String(message.seq),
-      label: info.label,
-      state: settled ? "complete" : "active",
-      subagentType: info.subagentType,
-      detail: info.detail,
-    });
+    const state = settled ? "complete" : "active";
+    if (refs.length === 0) {
+      steps.push({
+        key: String(message.seq),
+        label: info.label,
+        state,
+        subagentType: info.subagentType,
+        detail: info.detail,
+      });
+      continue;
+    }
+    for (const ref of refs) {
+      if (seen.has(ref.id)) continue;
+      seen.add(ref.id);
+      steps.push({
+        key: `${message.seq}:${ref.id}`,
+        label: ref.label ?? ref.id,
+        state: states.get(ref.id) ?? state,
+        subagentType: ref.agent ?? info.subagentType ?? toolHead(message.text),
+        detail: ref.detail ?? info.detail,
+      });
+    }
   }
   return steps;
 }

@@ -1,8 +1,10 @@
+pub mod agy;
 pub mod claude;
 pub mod codex;
 mod codex_provider_env;
 mod codex_usage;
 pub mod dsh;
+mod dsh_session;
 pub mod grok;
 pub mod images;
 pub mod kimi;
@@ -402,6 +404,13 @@ pub trait Engine: Send + Sync {
     fn build_command(&self, req: &SendRequest, bin: &str) -> Result<BuiltCommand, String>;
     /// Parse one NDJSON stdout line into zero or more events.
     fn parse_line(&self, line: &str, out: &mut Vec<EngineEvent>);
+    /// True when the engine drives its own transport (e.g. a host WS session)
+    /// instead of spawning a child process. send_message routes these to a
+    /// virtual run: no spawn, no pid — the registry entry carries only the
+    /// abort handle, and the transport task settles the turn itself.
+    fn drives_own_transport(&self) -> bool {
+        false
+    }
     /// Whether this engine accepts image attachments.
     fn supports_images(&self) -> bool;
     /// Permission modes this engine can honor at spawn ("auto" | "manual" |
@@ -430,6 +439,7 @@ pub fn engine_by_id(id: &str) -> Option<Box<dyn Engine>> {
         "pi" => Some(Box::new(pi_family::pi())),
         "omp" => Some(Box::new(pi_family::omp())),
         "dsh" => Some(Box::new(dsh::DshEngine)),
+        "agy" => Some(Box::new(agy::AgyEngine)),
         _ => None,
     }
 }
@@ -447,6 +457,28 @@ pub(crate) fn engine_home(env_key: Option<&str>, default_dir: &str) -> PathBuf {
         }
     }
     fallback_home().join(default_dir)
+}
+
+/// Codex config/session home. Settings override wins in production so CLI
+/// 管理's directory is what history, official config, and `codex exec` all
+/// read — not a leftover `~/.codex` default. Tests keep using `CODEX_HOME`
+/// / `HOME/.codex` so HomeGuard scratch dirs stay isolated.
+pub(crate) fn codex_home() -> PathBuf {
+    #[cfg(not(test))]
+    if let Some(path) = settings_codex_home() {
+        return path;
+    }
+    engine_home(Some("CODEX_HOME"), ".codex")
+}
+
+#[cfg(not(test))]
+fn settings_codex_home() -> Option<PathBuf> {
+    let custom = crate::settings::read_settings().ok()?.codex_home?;
+    let trimmed = custom.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    crate::open_app::expand_user_path(trimmed).ok()
 }
 
 /// Home dir for the default engine path. Production uses `dirs` (Known
@@ -496,7 +528,11 @@ pub(crate) fn push_session_id(value: &Value, key: &str, out: &mut Vec<EngineEven
 /// `rekey`) — so either route can interrupt it.
 #[derive(Clone)]
 pub struct ChildEntry {
-    pub child: Arc<TokioMutex<Child>>,
+    /// The child process. `None` for virtual runs (host-stream engines): the
+    /// entry then only routes interrupt to the transport task via `killed` /
+    /// `reader_abort`, and `pid` is a synthetic identity token (see
+    /// `next_virtual_pid`), never a real process id.
+    pub child: Option<Arc<TokioMutex<Child>>>,
     pub pid: u32,
     /// The run id this entry started under; after a rekey the map key is the
     /// native session id, but the frontend may still cancel by run id.
@@ -575,9 +611,14 @@ impl ProcessRegistry {
     }
 
     /// Kill one entry (pid-reuse guarded). Returns false when the child was
-    /// already reaped — nothing left to signal.
-    fn kill_entry(pid: u32, child: &Arc<TokioMutex<tokio::process::Child>>, killed: &Arc<std::sync::atomic::AtomicBool>) -> bool {
+    /// already reaped — nothing left to signal. Virtual runs (no child) only
+    /// raise the killed flag: the transport task observes it on its next
+    /// loop tick, cancels the host-side turn, and settles the turn itself.
+    fn kill_entry(child: Option<&Arc<TokioMutex<tokio::process::Child>>>, pid: u32, killed: &Arc<std::sync::atomic::AtomicBool>) -> bool {
         killed.store(true, std::sync::atomic::Ordering::SeqCst);
+        let Some(child) = child else {
+            return true;
+        };
         if let Ok(mut guard) = child.try_lock() {
             // Pid-reuse guard: a reaped child's pid may already belong to
             // someone else — never signal a group we no longer own.
@@ -602,14 +643,14 @@ impl ProcessRegistry {
     /// several parallel runs must all die on a single stop, or the survivors
     /// keep streaming and fight the next run over the session file.
     pub fn kill(&self, key: &str) -> bool {
-        let mut entries: Vec<(u32, Arc<TokioMutex<tokio::process::Child>>, Arc<std::sync::atomic::AtomicBool>, Arc<std::sync::OnceLock<tokio::task::AbortHandle>>)> =
+        let mut entries: Vec<(u32, Option<Arc<TokioMutex<tokio::process::Child>>>, Arc<std::sync::atomic::AtomicBool>, Arc<std::sync::OnceLock<tokio::task::AbortHandle>>)> =
             match self.0.lock() {
                 Ok(map) => {
                     let mut seen_pids = std::collections::HashSet::new();
                     map.iter()
                         .filter(|(k, e)| *k == key || e.run_id == key)
                         .filter(|(_, e)| seen_pids.insert(e.pid))
-                        .map(|(_, e)| (e.pid, Arc::clone(&e.child), Arc::clone(&e.killed), Arc::clone(&e.reader_abort)))
+                        .map(|(_, e)| (e.pid, e.child.clone(), Arc::clone(&e.killed), Arc::clone(&e.reader_abort)))
                         .collect()
                 }
                 Err(_) => Vec::new(),
@@ -624,7 +665,7 @@ impl ProcessRegistry {
         // aggregate kill exists to fix.
         let mut killed_any = false;
         for (pid, child, killed, _) in &entries {
-            killed_any |= Self::kill_entry(*pid, child, killed);
+            killed_any |= Self::kill_entry(child.as_ref(), *pid, killed);
         }
         // Backstop for a child that ignores SIGKILL (uninterruptible
         // sleep): its reader parks on wait() after EOF, pinning the Arcs it
@@ -658,9 +699,13 @@ impl ProcessRegistry {
         entries.sort_by_key(|e| e.pid);
         entries.dedup_by_key(|e| e.pid);
         for entry in entries {
-            kill_process_group(entry.pid);
-            if let Ok(mut guard) = entry.child.try_lock() {
-                let _ = guard.start_kill();
+            // Virtual runs own no process group; their task aborts below/via
+            // the abort handle.
+            if let Some(child) = entry.child.as_ref() {
+                kill_process_group(entry.pid);
+                if let Ok(mut guard) = child.try_lock() {
+                    let _ = guard.start_kill();
+                }
             }
             // Teardown: abort the reader outright so it drops its
             // registry/sink Arcs now instead of parking on wait() past
@@ -683,9 +728,13 @@ impl Drop for ProcessRegistry {
         entries.sort_by_key(|e| e.pid);
         entries.dedup_by_key(|e| e.pid);
         for entry in entries {
-            kill_process_group(entry.pid);
-            if let Ok(mut guard) = entry.child.try_lock() {
-                let _ = guard.start_kill();
+            // Virtual runs own no process group; their task aborts below/via
+            // the abort handle.
+            if let Some(child) = entry.child.as_ref() {
+                kill_process_group(entry.pid);
+                if let Ok(mut guard) = child.try_lock() {
+                    let _ = guard.start_kill();
+                }
             }
         }
     }
@@ -789,7 +838,20 @@ pub struct EngineInfo {
     pub permissions: Vec<String>,
 }
 
+fn codex_bin_from_home(settings: &crate::settings::AppSettings) -> Option<String> {
+    let home = settings.codex_home.as_deref()?.trim();
+    if home.is_empty() {
+        return None;
+    }
+    let expanded = crate::open_app::expand_user_path(home).ok()?;
+    let candidate = expanded.join("bin").join("codex");
+    candidate.exists().then(|| resolve::resolve_launchable_cli_binary(&candidate.to_string_lossy()))
+}
+
 pub(crate) fn engine_bin(settings: &crate::settings::AppSettings, engine_id: &str) -> String {
+    // An explicit bin override always wins: it predates the codex-home row
+    // (hidden for codex in the UI), and a stale codexBin in an upgraded
+    // settings.json must not be silently overridden by $home/bin/codex.
     if let Some(custom) = settings.bin_override(engine_id) {
         let trimmed = custom.trim();
         if !trimmed.is_empty() {
@@ -801,6 +863,11 @@ pub(crate) fn engine_bin(settings: &crate::settings::AppSettings, engine_id: &st
                     eprintln!("[engine] ignoring invalid {engine_id} bin override: {reason}");
                 }
             }
+        }
+    }
+    if engine_id == "codex" {
+        if let Some(from_home) = codex_bin_from_home(settings) {
+            return from_home;
         }
     }
     resolve::resolve_launchable_cli_binary(engine_id)
@@ -818,6 +885,7 @@ pub fn list_engines() -> Vec<EngineInfo> {
                 Some(custom) if !custom.trim().is_empty() => {
                     crate::settings::validate_bin_override(custom).is_ok()
                 }
+                _ if *id == "codex" && codex_bin_from_home(&settings).is_some() => true,
                 _ => resolve::find_cli_binary(id, None).is_some(),
             };
             EngineInfo {
@@ -905,7 +973,19 @@ fn prepare_launch(
             .collect(),
     };
     let bin = engine_bin(&settings, engine);
-    let built = engine_impl.build_command(&req, &bin)?;
+    // Host-stream engines never spawn: hand back a placeholder command so
+    // prepare_launch stays shape-compatible; send_message branches to the
+    // virtual path before anything would touch it.
+    let built = if engine_impl.drives_own_transport() {
+        BuiltCommand {
+            command: Command::new("unused-virtual-engine"),
+            stdin_payload: None,
+            cleanup_files: Vec::new(),
+            preassigned_session_id: None,
+        }
+    } else {
+        engine_impl.build_command(&req, &bin)?
+    };
     Ok(Launch {
         req,
         bin,
@@ -1004,11 +1084,8 @@ impl TurnState {
 
 /// Everything the stdout reader task needs (moved in at spawn).
 struct RunContext {
-    sink: Arc<event_sink::EventSink>,
-    registry: Arc<ProcessRegistry>,
+    core: TurnCore,
     engine_impl: Box<dyn Engine>,
-    engine_id: String,
-    run_id: String,
     pid: u32,
     /// Session id fixed before spawn (grok `-s`); seeds TurnState.
     preassigned_session_id: Option<String>,
@@ -1019,7 +1096,18 @@ struct RunContext {
     stderr_buf: Arc<Mutex<String>>,
 }
 
-impl RunContext {
+/// Event-routing core shared by process runs ([`RunContext`]) and virtual
+/// host-stream runs ([`dsh_session::run_host_turn`]): the fields
+/// `dispatch_event` needs to route engine events to the UI sink and keep the
+/// registry's session aliasing in step.
+pub(crate) struct TurnCore {
+    pub(crate) sink: Arc<event_sink::EventSink>,
+    pub(crate) registry: Arc<ProcessRegistry>,
+    pub(crate) engine_id: String,
+    pub(crate) run_id: String,
+}
+
+impl TurnCore {
     /// Adopt a native session id: rekey the registry entry (no overwrite) and
     /// remember it for subsequent event payloads.
     fn adopt_session_id(&self, state: &mut TurnState, id: &str, announce: bool) {
@@ -1178,6 +1266,12 @@ impl RunContext {
     }
 }
 
+impl RunContext {
+    fn dispatch_event(&self, state: &mut TurnState, event: EngineEvent) {
+        self.core.dispatch_event(state, event);
+    }
+}
+
 /// One line read from the engine's stdout, size-capped.
 enum LineRead {
     /// A complete line, newline terminator stripped (may be empty).
@@ -1193,11 +1287,16 @@ enum LineRead {
 /// only await is `fill_buf`, so a `tokio::select!` tick landing mid-line
 /// consumes and drops nothing — the property the old code relied on
 /// `next_line` for (a cancelled `read_line` would lose the partial bytes).
+/// Resuming the buffer is the whole point: a `line.clear()` here wiped the
+/// bytes a cancelled call had already consumed from the reader, so a tick
+/// landing mid-line truncated that line (a long `item.completed` parsed as
+/// broken JSON and was dropped). The caller hands back the same buffer every
+/// call, and `mem::take` empties it on a complete line while Eof/TooLong end
+/// the run, so this only ever appends.
 async fn read_line_capped(
     reader: &mut BufReader<ChildStdout>,
     line: &mut Vec<u8>,
 ) -> std::io::Result<LineRead> {
-    line.clear();
     loop {
         let available = reader.fill_buf().await?;
         if available.is_empty() {
@@ -1242,7 +1341,7 @@ async fn run_reader(stdout: ChildStdout, ctx: RunContext) {
     // nothing, and one runaway line can't grow without bound.
     let mut reader = BufReader::new(stdout);
     let mut line_buf = Vec::new();
-    let is_codex = ctx.engine_id == "codex";
+    let is_codex = ctx.core.engine_id == "codex";
     let mut usage_tail: Option<codex_usage::UsageTail> = None;
     // Only the stream's own thread id (thread.started) may open the log: a
     // resumed run's preassigned id can name a thread the CLI is no longer
@@ -1292,7 +1391,7 @@ async fn run_reader(stdout: ChildStdout, ctx: RunContext) {
                     &mut state,
                     EngineEvent::Error(format!(
                         "{} emitted a line over {} MiB without a newline; run terminated",
-                        ctx.engine_id,
+                        ctx.core.engine_id,
                         MAX_LINE_BYTES / (1024 * 1024),
                     )),
                 );
@@ -1335,9 +1434,9 @@ async fn run_reader(stdout: ChildStdout, ctx: RunContext) {
     // Drain this run's registry entries: under the native session id after
     // rekey, and under the run id when the session id never arrived.
     if let Some(key) = state.native_session_id.clone() {
-        ctx.registry.remove_if_pid(&key, ctx.pid);
+        ctx.core.registry.remove_if_pid(&key, ctx.pid);
     }
-    ctx.registry.remove_if_pid(&ctx.run_id, ctx.pid);
+    ctx.core.registry.remove_if_pid(&ctx.core.run_id, ctx.pid);
     // omp writes some failures (upstream 403/5xx, quota exhaustion) to
     // stderr and then exits — sometimes cleanly, after a normal turn_end.
     // A non-empty stderr on a failed exit must reach the user even when a
@@ -1351,9 +1450,9 @@ async fn run_reader(stdout: ChildStdout, ctx: RunContext) {
     let failed = status.map(|s| !s.success()).unwrap_or(true);
     if failed && !state.saw_error && !stderr_tail.is_empty() {
         state.push(
-            &ctx.sink,
-            &ctx.run_id,
-            &ctx.engine_id,
+            &ctx.core.sink,
+            &ctx.core.run_id,
+            &ctx.core.engine_id,
             "warn",
             Value::String(format!("engine stderr: {stderr_tail}")),
         );
@@ -1365,16 +1464,16 @@ async fn run_reader(stdout: ChildStdout, ctx: RunContext) {
             // User-initiated stop: commit whatever streamed so far as a
             // normal turn end — a SIGKILL'd child is not a failure.
             state.push(
-                &ctx.sink,
-                &ctx.run_id,
-                &ctx.engine_id,
+                &ctx.core.sink,
+                &ctx.core.run_id,
+                &ctx.core.engine_id,
                 "done",
                 serde_json::json!({ "usage": null }),
             );
         } else if failed || !state.saw_any_output {
             let mut message = format!(
                 "{} exited with status {}",
-                ctx.engine_id,
+                ctx.core.engine_id,
                 status
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| "unknown".to_string())
@@ -1383,29 +1482,58 @@ async fn run_reader(stdout: ChildStdout, ctx: RunContext) {
                 message.push_str(&format!(": {stderr_tail}"));
             }
             state.push(
-                &ctx.sink,
-                &ctx.run_id,
-                &ctx.engine_id,
+                &ctx.core.sink,
+                &ctx.core.run_id,
+                &ctx.core.engine_id,
                 "error",
                 Value::String(message),
             );
         } else {
             // Clean EOF without an explicit done line (kimi).
             state.push(
-                &ctx.sink,
-                &ctx.run_id,
-                &ctx.engine_id,
+                &ctx.core.sink,
+                &ctx.core.run_id,
+                &ctx.core.engine_id,
                 "done",
                 serde_json::json!({ "usage": null }),
             );
         }
     }
-    ctx.sink.flush();
+    ctx.core.sink.flush();
 }
 
 #[tauri::command]
 pub async fn send_message(
     state: tauri::State<'_, crate::AppState>,
+    engine: String,
+    workspace_path: String,
+    session_id: Option<String>,
+    prompt: String,
+    image_paths: Option<Vec<String>>,
+    model: Option<String>,
+    effort: Option<String>,
+    permission: Option<String>,
+) -> Result<SendResult, String> {
+    send_message_inner(
+        &state,
+        engine,
+        workspace_path,
+        session_id,
+        prompt,
+        image_paths,
+        model,
+        effort,
+        permission,
+    )
+    .await
+}
+
+/// Body of the `send_message` command, taking the state directly: integration
+/// tests drive the real spawn/read pipeline without a Tauri app (the mock
+/// runtime links the GUI crates into the test exe, which then cannot load
+/// without a comctl32 v6 manifest).
+pub async fn send_message_inner(
+    state: &crate::AppState,
     engine: String,
     workspace_path: String,
     session_id: Option<String>,
@@ -1434,6 +1562,12 @@ pub async fn send_message(
         // (each send is a fresh process).
         state.db.granted_roots().unwrap_or_default(),
     )?;
+
+    // Host-stream engines drive their own transport: no child process — the
+    // registry entry only routes interrupts to the transport task.
+    if launch.engine_impl.drives_own_transport() {
+        return send_host_stream(state, launch, engine).await;
+    }
 
     let mut command = launch.built.command;
     if engine == "codex" {
@@ -1492,7 +1626,7 @@ pub async fn send_message(
     state.processes.insert(
         run_id.clone(),
         ChildEntry {
-            child: Arc::clone(&child),
+            child: Some(Arc::clone(&child)),
             pid,
             run_id: run_id.clone(),
             killed: Arc::clone(&killed),
@@ -1503,7 +1637,7 @@ pub async fn send_message(
         state.processes.insert_alias(
             session_id.to_string(),
             ChildEntry {
-                child: Arc::clone(&child),
+                child: Some(Arc::clone(&child)),
                 pid,
                 run_id: run_id.clone(),
                 killed: Arc::clone(&killed),
@@ -1525,11 +1659,13 @@ pub async fn send_message(
         launch.req.model.clone()
     };
     let ctx = RunContext {
-        sink: Arc::clone(&state.sink),
-        registry: Arc::clone(&state.processes),
+        core: TurnCore {
+            sink: Arc::clone(&state.sink),
+            registry: Arc::clone(&state.processes),
+            engine_id: engine.clone(),
+            run_id: run_id.clone(),
+        },
         engine_impl: launch.engine_impl,
-        engine_id: engine.clone(),
-        run_id: run_id.clone(),
         pid,
         preassigned_session_id: launch.built.preassigned_session_id.clone(),
         initial_model,
@@ -1546,6 +1682,63 @@ pub async fn send_message(
     Ok(SendResult {
         run_id,
         session_id: launch.built.preassigned_session_id,
+    })
+}
+
+/// Synthetic registry identity for virtual (host-stream) runs: they own no
+/// process, but the registry's dedup/remove paths are pid-keyed, so each run
+/// gets a unique token well above any real pid. Never passed to an OS call.
+fn next_virtual_pid() -> u32 {
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(u32::MAX / 2);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Virtual run path for engines that drive their own transport
+/// ([`Engine::drives_own_transport`]): register a child-less entry whose
+/// `killed` flag and abort handle route interrupts into the transport task,
+/// then detach it. The task dispatches the same event kinds as `run_reader`
+/// and settles the turn itself (done/error + registry cleanup).
+async fn send_host_stream(
+    state: &crate::AppState,
+    launch: Launch,
+    engine: String,
+) -> Result<SendResult, String> {
+    let run_id = uuid::Uuid::new_v4().to_string();
+    let pid = next_virtual_pid();
+    let killed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let reader_abort = Arc::new(std::sync::OnceLock::new());
+    let entry = ChildEntry {
+        child: None,
+        pid,
+        run_id: run_id.clone(),
+        killed: Arc::clone(&killed),
+        reader_abort: Arc::clone(&reader_abort),
+    };
+    state.processes.insert(run_id.clone(), entry.clone());
+    if let Some(session_id) = launch.req.session_id.as_deref() {
+        // A resumed host session is keyed up front (same contract as grok's
+        // preassigned id): interrupt by conversation session id must route.
+        state.processes.insert_alias(session_id.to_string(), entry);
+    }
+
+    let core = TurnCore {
+        sink: Arc::clone(&state.sink),
+        registry: Arc::clone(&state.processes),
+        engine_id: engine.clone(),
+        run_id: run_id.clone(),
+    };
+    let resume_session_id = launch.req.session_id.clone();
+    let task = tokio::spawn(dsh_session::run_host_turn(
+        core,
+        launch.req,
+        state.dsh_host.clone(),
+        killed,
+        pid,
+    ));
+    let _ = reader_abort.set(task.abort_handle());
+    Ok(SendResult {
+        run_id,
+        session_id: resume_session_id,
     })
 }
 
@@ -1566,6 +1759,13 @@ pub async fn interrupt_session(
 #[cfg(test)]
 mod permission_tests {
     use super::*;
+
+    #[test]
+    fn every_registered_engine_has_an_adapter() {
+        for id in crate::config::ENGINES {
+            assert!(engine_by_id(id).is_some(), "{id}");
+        }
+    }
 
     fn req(permission: Option<&str>) -> SendRequest {
         SendRequest {
@@ -1589,6 +1789,30 @@ mod permission_tests {
             .get_args()
             .map(|a| a.to_string_lossy().to_string())
             .collect()
+    }
+
+    #[test]
+    fn pi_prompt_goes_through_stdin_not_argv() {
+        // Windows resolves the pi install to a `.cmd` shim spawned via `cmd /c`;
+        // cmd.exe cuts a multiline argument at the first newline, so only line 1
+        // ever reached the model. The prompt must ride stdin verbatim, and the
+        // `@<abs path>` image refs must stay in argv.
+        let mut request = req(None);
+        request.prompt = "first line\nsecond line\n%PATH%".to_string();
+        request.images = vec!["C:/tmp/paste.png".to_string()];
+        let engines: [&dyn Engine; 2] = [&pi_family::pi(), &pi_family::omp()];
+        for engine in engines {
+            let built = engine.build_command(&request, "fake-bin").unwrap();
+            let args: Vec<String> = built
+                .command
+                .as_std()
+                .get_args()
+                .map(|a| a.to_string_lossy().to_string())
+                .collect();
+            assert!(!args.iter().any(|a| a.contains("first line")), "{args:?}");
+            assert!(args.iter().any(|a| a.contains("paste.png")), "{args:?}");
+            assert_eq!(built.stdin_payload.as_deref(), Some(request.prompt.as_str()));
+        }
     }
 
     #[test]
@@ -1825,7 +2049,7 @@ mod registry_tests {
         .expect("spawn sleep child");
         let pid = child.id().unwrap_or(0);
         let entry = ChildEntry {
-            child: Arc::new(TokioMutex::new(child)),
+            child: Some(Arc::new(TokioMutex::new(child))),
             pid,
             run_id: "run-1".to_string(),
             killed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -1871,7 +2095,7 @@ mod registry_tests {
             .expect("spawn sleep child");
         let pid = child.id().unwrap_or(0);
         let entry = ChildEntry {
-            child: Arc::new(TokioMutex::new(child)),
+            child: Some(Arc::new(TokioMutex::new(child))),
             pid,
             run_id: "run-preassigned".to_string(),
             killed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -1928,7 +2152,7 @@ mod registry_tests {
         );
 
         let entry = ChildEntry {
-            child: Arc::new(TokioMutex::new(child)),
+            child: Some(Arc::new(TokioMutex::new(child))),
             pid: cmd_pid,
             run_id: "run-tree".to_string(),
             killed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -2003,5 +2227,42 @@ mod tool_args_tests {
             EngineEvent::Message { patch, .. } => assert!(patch),
             _ => panic!("expected patch"),
         }
+    }
+}
+
+#[cfg(test)]
+mod codex_home_bin_tests {
+    use super::*;
+
+    #[test]
+    fn engine_bin_prefers_codex_home_bin() {
+        let dir = std::env::temp_dir().join(format!(
+            "ccgui-codex-home-bin-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(dir.join("bin")).unwrap();
+        let candidate = dir.join("bin").join("codex");
+        std::fs::write(&candidate, "#!/bin/sh\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&candidate, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let mut settings = crate::settings::AppSettings::default();
+        settings.codex_home = Some(dir.to_string_lossy().into_owned());
+        let resolved = engine_bin(&settings, "codex");
+        assert_eq!(PathBuf::from(&resolved), candidate);
+
+        // An explicit codexBin override (set before the home row existed, or
+        // hand-edited) still wins over $home/bin/codex.
+        #[cfg(unix)]
+        {
+            settings.bin_overrides.insert(
+                "codexBin".to_string(),
+                serde_json::Value::String("/bin/sh".to_string()),
+            );
+            assert_eq!(engine_bin(&settings, "codex"), "/bin/sh");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
