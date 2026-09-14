@@ -9,12 +9,13 @@ import type { SessionState } from "../store";
 import { useChatStore } from "../store";
 import { parseUsage } from "../usage";
 import { formatTokens } from "@/utils/format-tokens";
+import { cx } from "@/utils/cx";
 import { AgentThinking } from "@/components/application/agent-thinking/agent-thinking";
 import { streamParseInterval, useThrottled } from "@/hooks/use-throttled";
 import { useCopied } from "@/hooks/use-copied";
 import { MessageImages } from "./MessageImages";
 import { GrantCard } from "./GrantCard";
-import { MessageAnchorRail } from "./MessageAnchorRail";
+import { MESSAGE_ANCHOR_RAIL_BAND_CLASS, MessageAnchorRail } from "./MessageAnchorRail";
 import { createAnchorRowsBuilder } from "./timeline-anchors";
 import { buildRows, collectToolKeys, rowKey, type TimelineRow } from "./timeline-rows";
 import { formatDuration } from "./format-duration";
@@ -394,7 +395,17 @@ export const MessageTimeline = memo(function MessageTimeline({
         onScrollToAnchor={handleScrollToAnchor}
       />
       <ScrollToBottomButton scrollRef={scrollRef} contentSignal={count} onJump={resumeFollow} />
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4">
+      {/* The rail is absolutely positioned, so its band must be reserved here or
+          a narrow window slides the centered column under the dashes. Only when
+          the rail actually renders (anchors present) — otherwise the padding
+          would be lopsided for no reason. */}
+      <div
+        ref={scrollRef}
+        className={cx(
+          "min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4",
+          anchors.length > 0 && MESSAGE_ANCHOR_RAIL_BAND_CLASS,
+        )}
+      >
         <div data-sentinel className="h-px" />
         {session.nextBefore && (
           <button

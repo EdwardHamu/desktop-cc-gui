@@ -10,6 +10,7 @@ import {
   deriveTodoList,
   type AgentTaskStep,
 } from "./agent-task-steps";
+import { deriveEditLineStats, type EditLineStat } from "./edit-line-stats";
 
 const EMPTY_MESSAGES: Message[] = [];
 
@@ -26,8 +27,9 @@ const EMPTY_MESSAGES: Message[] = [];
  * - Pills never auto-hide after a turn completes — counts freeze until a
  *   newer turn contributes fresh data. A panel auto-collapses when its
  *   section's data disappears.
- * - The 已编辑 pill carries git line stats (+/−) aggregated over the files
- *   this session edited, sourced from the workspace git status.
+ * - The 已编辑 pill carries line stats (+/−) aggregated over the files this
+ *   session edited, counted from the session's own edit tool payloads with
+ *   workspace git status as a fallback.
  */
 
 const CHROME_OPEN_KEY = "ccgui.chat.runStatusChromeOpen";
@@ -56,10 +58,9 @@ function baseName(path: string): string {
   return idx < 0 ? trimmed : trimmed.slice(idx + 1);
 }
 
-interface FileStat {
-  additions: number;
-  deletions: number;
-}
+/** Same shape as the session-derived stat; the two sources are interchangeable
+ * at the render layer. */
+type FileStat = EditLineStat;
 
 function normalizeSlashes(path: string): string {
   return path.replace(/\\/g, "/");
@@ -74,19 +75,25 @@ function toWorkspaceRel(path: string, workspacePath: string): string {
   return norm;
 }
 
-/** Match session-edited files against workspace git status and sum line
- * stats. One file may appear in several status lists (staged + unstaged) —
- * take the per-side max instead of double-counting. `total` is null when
- * nothing matched (non-repo / status not loaded yet) so stats stay hidden. */
+/** Line stats for the session-edited files. The session's own edit payloads
+ * are authoritative: git status misses gitignored targets (`.omp/**`),
+ * non-repo workspaces and files already committed mid-session, which is why
+ * the pill used to show no numbers at all. Git status is the fallback for
+ * files the transcript recorded without usable args. One file may appear in
+ * several git status lists (staged + unstaged) — take the per-side max
+ * instead of double-counting. `total` is null only when no file resolved a
+ * stat from either source, so stats stay hidden rather than showing zeros. */
 function collectFileStats(
   files: string[],
+  sessionStats: Map<string, FileStat>,
   status: GitStatus | undefined,
   workspacePath: string,
 ): { perFile: Map<string, FileStat>; total: FileStat | null } {
   const perFile = new Map<string, FileStat>();
-  if (!status) return { perFile, total: null };
   const byRel = new Map<string, FileStat>();
-  for (const entry of [...status.staged, ...status.unstaged, ...status.untracked]) {
+  for (const entry of status
+    ? [...status.staged, ...status.unstaged, ...status.untracked]
+    : []) {
     const rel = normalizeSlashes(entry.path);
     const prev = byRel.get(rel);
     byRel.set(rel, {
@@ -97,7 +104,7 @@ function collectFileStats(
   const total: FileStat = { additions: 0, deletions: 0 };
   let matched = false;
   for (const file of files) {
-    const stat = byRel.get(toWorkspaceRel(file, workspacePath));
+    const stat = sessionStats.get(file) ?? byRel.get(toWorkspaceRel(file, workspacePath));
     if (!stat) continue;
     matched = true;
     perFile.set(file, stat);
@@ -612,8 +619,10 @@ export const RunStatusStrip = memo(function RunStatusStrip({
   );
   const files = useMemo(() => deriveEditedFiles(messages), [messages]);
   const todos = useMemo(() => deriveTodoList(messages), [messages]);
+  const sessionStats = useMemo(() => deriveEditLineStats(messages), [messages]);
 
-  // git line stats for the 已编辑 pill; force-refresh when the turn settles.
+  // git line stats are the fallback for files the session recorded without an
+  // edit payload; force-refresh when the turn settles.
   const gitStatus = useGitStore((s) =>
     workspacePath ? s.statusByWorkspace[workspacePath] : undefined,
   );
@@ -623,8 +632,8 @@ export const RunStatusStrip = memo(function RunStatusStrip({
     void refreshGit(workspacePath, !streaming).catch(() => undefined);
   }, [workspacePath, streaming, files.length, refreshGit]);
   const { perFile, total } = useMemo(
-    () => collectFileStats(files, gitStatus, workspacePath),
-    [files, gitStatus, workspacePath],
+    () => collectFileStats(files, sessionStats, gitStatus, workspacePath),
+    [files, sessionStats, gitStatus, workspacePath],
   );
 
   const [chromeOpen, setChromeOpen] = useState(readChromeOpen);

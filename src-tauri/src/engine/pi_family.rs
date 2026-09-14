@@ -35,8 +35,22 @@ impl Engine for PiFamilyEngine {
         // content is provider-dependent, but the transport is supported.
         true
     }
-    // Print mode runs tools without prompting and exposes no permission
-    // flags: only "auto" is honest (the trait default).
+    /// omp exposes real approval switches (`--approval-mode`,
+    /// `--auto-approve`) plus a headless plan flow (`--plan-yolo`); pi 0.85
+    /// has none of them, so it keeps the trait default.
+    ///
+    /// `always-ask`/`write` are deliberately absent: they leave write/exec
+    /// tools on a `prompt` policy, and print mode has no UI to answer with —
+    /// the CLI aborts the turn with "requires approval but no interactive UI
+    /// available" the moment a gated tool runs. Only the non-prompting modes
+    /// can be honored headlessly.
+    fn supported_permissions(&self) -> &'static [&'static str] {
+        if self.id == "omp" {
+            &["auto", "plan", "bypass"]
+        } else {
+            &["auto"]
+        }
+    }
 
     fn build_command(&self, req: &SendRequest, bin: &str) -> Result<BuiltCommand, String> {
         let mut cmd = command_for_binary(bin);
@@ -66,6 +80,28 @@ impl Engine for PiFamilyEngine {
         if let Some(effort) = req.effort.as_deref() {
             cmd.arg("--thinking");
             cmd.arg(effort);
+        }
+        match self.resolve_permission(req.permission.as_deref()) {
+            // Skips every approval tier for this run, and also sets the
+            // session's explicit auto-approve flag (not just the setting), so
+            // the ACP permission gate stands down too.
+            "bypass" => {
+                cmd.arg("--auto-approve");
+            }
+            // omp's own documented headless plan flow: start read-only,
+            // auto-approve the plan on the model's first resolve call, then
+            // implement. `--plan-yolo-into` otherwise drops to the cheap
+            // "smol" role — pin it to the picked model so the implementation
+            // phase runs on the CLI the user actually selected.
+            "plan" => {
+                cmd.arg("--plan-yolo");
+                if let Some(model) = req.model.as_deref() {
+                    cmd.arg("--plan-yolo-into");
+                    cmd.arg(model);
+                }
+            }
+            // "auto": leave the CLI's own tools.approvalMode alone.
+            _ => {}
         }
         if let Some(session_id) = req.session_id.as_deref() {
             if !session_id.starts_with('-') {

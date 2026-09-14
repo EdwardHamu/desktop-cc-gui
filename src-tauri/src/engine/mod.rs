@@ -1988,6 +1988,57 @@ mod permission_tests {
     }
 
     #[test]
+    fn omp_offers_plan_and_bypass_while_pi_stays_auto() {
+        // omp 18.1.x grew real approval switches plus a headless plan flow; pi
+        // 0.85 still exposes none of them. Declaring only the modes a CLI can
+        // actually honor is the whole point of supported_permissions — the
+        // picker greys out the rest instead of sending a mode that is ignored.
+        assert_eq!(pi_family::omp().supported_permissions(), ["auto", "plan", "bypass"]);
+        assert_eq!(pi_family::pi().supported_permissions(), ["auto"]);
+
+        // "manual" must stay unsupported: always-ask/write leave write/exec
+        // tools on a prompt policy, and print mode has no UI to answer with —
+        // the CLI aborts the turn ("requires approval but no interactive UI
+        // available") the moment a gated tool runs.
+        assert_eq!(pi_family::omp().resolve_permission(Some("manual")), "auto");
+        // pi falls back to its only mode for anything else.
+        assert_eq!(pi_family::pi().resolve_permission(Some("bypass")), "auto");
+
+        let auto = argv(&pi_family::omp(), &req(Some("auto")));
+        assert!(!auto.contains(&"--approval-mode".to_string()));
+        assert!(!auto.contains(&"--auto-approve".to_string()));
+        assert!(!auto.contains(&"--plan-yolo".to_string()));
+
+        let bypass = argv(&pi_family::omp(), &req(Some("bypass")));
+        assert!(bypass.contains(&"--auto-approve".to_string()));
+        assert!(!bypass.contains(&"--plan-yolo".to_string()));
+
+        // The plan flow pins the implementation phase to the picked model;
+        // otherwise --plan-yolo-into drops to the cheap "smol" role.
+        let mut plan_req = req(Some("plan"));
+        plan_req.model = Some("openai-codex/gpt-5.4".into());
+        let plan = argv(&pi_family::omp(), &plan_req);
+        assert!(plan.contains(&"--plan-yolo".to_string()));
+        let pin = plan
+            .iter()
+            .position(|a| a == "--plan-yolo-into")
+            .expect("plan pins the implementation model");
+        assert_eq!(plan[pin + 1], "openai-codex/gpt-5.4");
+
+        // No model picked yet: --plan-yolo alone must not invent one.
+        let bare = argv(&pi_family::omp(), &req(Some("plan")));
+        assert!(bare.contains(&"--plan-yolo".to_string()));
+        assert!(!bare.contains(&"--plan-yolo-into".to_string()));
+
+        // pi never receives any of these flags, even when it is asked for one.
+        for mode in [Some("plan"), Some("bypass"), Some("manual")] {
+            let args = argv(&pi_family::pi(), &req(mode));
+            assert!(!args.contains(&"--plan-yolo".to_string()), "{args:?}");
+            assert!(!args.contains(&"--auto-approve".to_string()), "{args:?}");
+        }
+    }
+
+    #[test]
     fn claude_passes_granted_dirs_as_add_dir() {
         let e = claude::ClaudeEngine::new();
         let mut r = req(Some("auto"));
