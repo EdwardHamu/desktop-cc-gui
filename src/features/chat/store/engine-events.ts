@@ -914,7 +914,9 @@ export function handleEngineEvents(
     // adopt the run again or drain its queue a second time.
     if (settled && !(settled === "done" && (event.kind === "warn" || event.kind === "error"))) continue;
     const state = deps.get();
-    let key = runRouting.get(event.runId);
+    let key = runRouting.get(event.runId) ?? Object.keys(state.bySession).find(
+      (candidate) => state.bySession[candidate]?.settledRunIds?.includes(event.runId),
+    );
     if (key) touchRun(event.runId);
     if (!key && event.sessionId) {
       key = sessionKey(event.engine, event.sessionId, "");
