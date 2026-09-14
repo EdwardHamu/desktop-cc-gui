@@ -444,7 +444,12 @@ pub fn engine_by_id(id: &str) -> Option<Box<dyn Engine>> {
         "dsh" => Some(Box::new(dsh::DshEngine)),
         "agy" => Some(Box::new(agy::AgyEngine)),
         "opencode" => Some(Box::new(opencode::OpenCodeEngine)),
-        "qoder" => Some(Box::new(qoder::QoderEngine)),
+        "qoder" => Some(Box::new(qoder::QoderEngine::new(
+            qoder::QoderDistribution::Global,
+        ))),
+        "qoder-cn" => Some(Box::new(qoder::QoderEngine::new(
+            qoder::QoderDistribution::Cn,
+        ))),
         _ => None,
     }
 }
@@ -853,12 +858,13 @@ fn codex_bin_from_home(settings: &crate::settings::AppSettings) -> Option<String
     candidate.exists().then(|| resolve::resolve_launchable_cli_binary(&candidate.to_string_lossy()))
 }
 
-/// CLI binary name behind an engine id, when they differ: qoder's engine id
-/// names the product, but only `qodercli` speaks ACP (the `qoder` binary is
-/// the IDE launcher and is rejected at spawn).
+/// CLI binary name behind an engine id, when they differ: qoder's engine ids
+/// name the product/distribution, but only the `qodercli*` binaries speak
+/// ACP (the `qoder` binary is the IDE launcher and is rejected at spawn).
 pub(crate) fn cli_binary_name(engine_id: &str) -> &str {
     match engine_id {
-        "qoder" => "qodercli",
+        "qoder" => qoder::QoderDistribution::Global.cli_name(),
+        "qoder-cn" => qoder::QoderDistribution::Cn.cli_name(),
         _ => engine_id,
     }
 }
@@ -1751,7 +1757,7 @@ async fn send_host_stream(
             killed,
             pid,
         )),
-        "qoder" => tokio::spawn(qoder_session::run_acp_turn(
+        "qoder" | "qoder-cn" => tokio::spawn(qoder_session::run_acp_turn(
             core, launch.req, launch.bin, killed, pid,
         )),
         _ => unreachable!("send_host_stream only routes drives_own_transport engines: {engine}"),

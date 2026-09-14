@@ -12,6 +12,7 @@ export const CLI_DISPLAY_NAMES: Record<string, string> = {
   agy: "Antigravity CLI",
   opencode: "OpenCode",
   qoder: "Qoder CLI",
+  "qoder-cn": "Qoder CLI CN",
 };
 
 /**

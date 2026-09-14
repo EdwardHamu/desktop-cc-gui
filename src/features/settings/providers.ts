@@ -13,6 +13,7 @@ export const ENGINE_IDS = [
   "agy",
   "opencode",
   "qoder",
+  "qoder-cn",
 ] as const;
 export type EngineId = (typeof ENGINE_IDS)[number];
 /** Official docs per engine — the CLI 管理 header "官方文档" link. */
@@ -27,6 +28,7 @@ export const ENGINE_DOCS_URLS: Record<EngineId, string> = {
   agy: "https://www.antigravity.google/docs/cli/headless/",
   opencode: "https://opencode.ai/docs/",
   qoder: "https://docs.qoder.com/en/cli/using-cli",
+  "qoder-cn": "https://docs.qoder.com/zh/cli/using-cli",
 };
 
 export const PSEUDO_LOCAL = "__local_settings_json__";

@@ -394,6 +394,7 @@ export const en: Messages = {
       agy: "Antigravity",
       opencode: "OpenCode",
       qoder: "Qoder CLI",
+      "qoder-cn": "Qoder CLI (CN)",
     },
     cliManage: "CLI Management",
     cliDocs: "Official docs",

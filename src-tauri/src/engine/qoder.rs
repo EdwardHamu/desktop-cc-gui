@@ -12,11 +12,58 @@ use std::path::Path;
 
 use super::{BuiltCommand, Engine, SendRequest};
 
-pub struct QoderEngine;
+/// Qoder ships two distributions with independent binaries and config dirs
+/// (reference qoder_provider_profile.rs): Global (`qodercli`, `~/.qoder`)
+/// and CN (`qoderclicn`, `~/.qoder-cn`). Each is a sibling engine id sharing
+/// the one ACP driver — the pi/omp family pattern: sessions key off the
+/// engine id, so `qoder/<id>` and `qoder-cn/<id>` never collide and no
+/// profile-qualified identity is needed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum QoderDistribution {
+    Global,
+    Cn,
+}
+
+impl QoderDistribution {
+    pub(crate) fn engine_id(self) -> &'static str {
+        match self {
+            Self::Global => "qoder",
+            Self::Cn => "qoder-cn",
+        }
+    }
+
+    /// CLI binary behind the engine id (the `qoder` binary is the IDE
+    /// launcher and speaks no ACP).
+    pub(crate) fn cli_name(self) -> &'static str {
+        match self {
+            Self::Global => "qodercli",
+            Self::Cn => "qoderclicn",
+        }
+    }
+
+    /// Default config/session home (the CLI's own default; sessions are
+    /// scanned from `<home>/projects`).
+    pub(crate) fn default_config_dir_name(self) -> &'static str {
+        match self {
+            Self::Global => ".qoder",
+            Self::Cn => ".qoder-cn",
+        }
+    }
+}
+
+pub struct QoderEngine {
+    distribution: QoderDistribution,
+}
+
+impl QoderEngine {
+    pub(crate) fn new(distribution: QoderDistribution) -> Self {
+        Self { distribution }
+    }
+}
 
 impl Engine for QoderEngine {
     fn id(&self) -> &'static str {
-        "qoder"
+        self.distribution.engine_id()
     }
 
     fn drives_own_transport(&self) -> bool {
@@ -65,6 +112,16 @@ pub(crate) fn is_qoder_ide_launcher_bin(bin: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn distributions_carry_independent_identities() {
+        assert_eq!(QoderDistribution::Global.engine_id(), "qoder");
+        assert_eq!(QoderDistribution::Cn.engine_id(), "qoder-cn");
+        assert_eq!(QoderDistribution::Global.cli_name(), "qodercli");
+        assert_eq!(QoderDistribution::Cn.cli_name(), "qoderclicn");
+        assert_eq!(QoderDistribution::Global.default_config_dir_name(), ".qoder");
+        assert_eq!(QoderDistribution::Cn.default_config_dir_name(), ".qoder-cn");
+    }
 
     #[test]
     fn ide_launcher_stem_is_rejected() {

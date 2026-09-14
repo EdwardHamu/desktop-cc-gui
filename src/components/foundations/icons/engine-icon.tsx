@@ -47,7 +47,8 @@ export type EngineIconId =
   | "dsh"
   | "agy"
   | "opencode"
-  | "qoder";
+  | "qoder"
+  | "qoder-cn";
 
 interface EngineIconProps {
   engine: string;
@@ -199,7 +200,7 @@ export function EngineIcon({ engine, size = 14, className, style }: EngineIconPr
   if (engine === "omp") {
     return <OmpGlyph size={size} className={className} style={style} />;
   }
-  if (engine === "qoder") {
+  if (engine === "qoder" || engine === "qoder-cn") {
     return <QoderGlyph size={size} className={className} style={style} />;
   }
 

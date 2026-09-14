@@ -10,8 +10,8 @@
 //! | kimi   | `$KIMI_CODE_HOME/config.toml` (`~/.kimi-code`) | `[providers."ccgui"]` (type `openai`), `[models."ccgui"]`, `default_model` |
 //! | grok   | `$GROK_HOME/config.toml` (`~/.grok`) | `[endpoints]` base URLs, `[models].default`, `[model."<alias>"].api_key` |
 //!
-//! pi/omp/dsh/agy/opencode/qoder keep providers display-only: applying them
-//! is a no-op. opencode's managed-provider path in the reference app injects
+//! pi/omp/dsh/agy/opencode/qoder/qoder-cn keep providers display-only:
+//! applying them is a no-op. opencode's managed-provider path in the reference app injects
 //! `OPENCODE_CONFIG_CONTENT` at spawn instead of patching
 //! `~/.config/opencode/opencode.json` — this repo materializes channels into
 //! native files, and a managed opencode writer half-verified against the
@@ -55,7 +55,7 @@ pub fn apply(engine: &str, id: &str, provider: Option<&Value>) -> Result<(), Str
         "codex" => apply_codex(&targets[0], &targets[1], provider),
         "kimi" => apply_kimi(&targets[0], provider),
         "grok" => apply_grok(&targets[0], provider),
-        // pi/omp/dsh/agy/opencode/qoder providers are display-only (see the
+        // pi/omp/dsh/agy/opencode/qoder/qoder-cn providers are display-only (see the
         // module header for why opencode/qoder declare no file target).
         _ => Ok(()),
     }

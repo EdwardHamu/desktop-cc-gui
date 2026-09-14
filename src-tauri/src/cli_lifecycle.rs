@@ -638,8 +638,10 @@ mod tests {
         }
         assert_eq!(npm_package("grok"), None);
         assert_eq!(npm_package("agy"), None);
-        // qodercli ships via its own installer (like grok/agy): no npm lifecycle.
+        // qodercli/qoderclicn ship via their own installer (like grok/agy):
+        // no npm lifecycle.
         assert_eq!(npm_package("qoder"), None);
+        assert_eq!(npm_package("qoder-cn"), None);
     }
 
     #[cfg(unix)]

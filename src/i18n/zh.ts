@@ -375,6 +375,7 @@ export const zh = {
       agy: "Antigravity",
       opencode: "OpenCode",
       qoder: "Qoder CLI",
+      "qoder-cn": "Qoder CLI 国内版",
     },
     cliManage: "CLI 管理",
     cliDocs: "官方文档",

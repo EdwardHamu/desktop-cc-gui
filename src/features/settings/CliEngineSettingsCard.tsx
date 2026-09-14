@@ -52,6 +52,7 @@ const BIN_FIELDS = {
   agy: "agyBin",
   opencode: "opencodeBin",
   qoder: "qoderBin",
+  "qoder-cn": "qoderCnBin",
 } as const;
 type BinEngine = keyof typeof BIN_FIELDS;
 

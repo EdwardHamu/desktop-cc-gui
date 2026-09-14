@@ -128,7 +128,8 @@ pub async fn list_engine_models(engine: String) -> Result<EngineCatalog, String>
         "dsh" => dsh_catalog().await,
         "agy" => Ok(agy_catalog().await),
         "opencode" => Ok(opencode_catalog().await),
-        "qoder" => qoder_catalog().await,
+        "qoder" => qoder_catalog("qoder").await,
+        "qoder-cn" => qoder_catalog("qoder-cn").await,
         // Unknown engine: no CLI-sourced catalog — the frontend fills the
         // picker from the configured provider channels.
         _ => Ok(EngineCatalog::authoritative(Vec::new())),
@@ -152,10 +153,10 @@ async fn opencode_catalog() -> EngineCatalog {
     opencode::opencode_catalog(&bin).await
 }
 
-async fn qoder_catalog() -> Result<EngineCatalog, String> {
+async fn qoder_catalog(engine: &'static str) -> Result<EngineCatalog, String> {
     let settings = crate::settings::read_settings().unwrap_or_default();
-    let bin = super::engine_bin(&settings, "qoder");
-    qoder::qoder_catalog(&bin).await
+    let bin = super::engine_bin(&settings, engine);
+    qoder::qoder_catalog(engine, &bin).await
 }
 
 async fn dsh_catalog() -> Result<EngineCatalog, String> {

@@ -1,16 +1,21 @@
 use super::{EngineCatalog, EngineModel};
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 /// qoder has no static catalog and no cheap list subcommand: the only
 /// CLI-sourced list is the ACP session/new handshake (spawns `qodercli
-/// --acp`, seconds). Cache the last successful probe so reopening the
-/// picker does not re-handshake every time.
-static CACHE: Mutex<Option<Vec<EngineModel>>> = Mutex::new(None);
+/// --acp`, seconds). Cache the last successful probe per engine id (Global
+/// and CN handshake their own binaries) so reopening the picker does not
+/// re-handshake every time.
+static CACHE: Mutex<Option<HashMap<&'static str, Vec<EngineModel>>>> = Mutex::new(None);
 
-pub(super) async fn qoder_catalog(bin: &str) -> Result<EngineCatalog, String> {
+pub(super) async fn qoder_catalog(
+    engine: &'static str,
+    bin: &str,
+) -> Result<EngineCatalog, String> {
     {
         let cached = CACHE.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(models) = cached.as_ref() {
+        if let Some(models) = cached.as_ref().and_then(|map| map.get(engine)) {
             return Ok(EngineCatalog::authoritative(models.clone()));
         }
     }
@@ -24,7 +29,7 @@ pub(super) async fn qoder_catalog(bin: &str) -> Result<EngineCatalog, String> {
             id: entry.id,
             name: entry.name,
             description: None,
-            provider: "qoder".to_string(),
+            provider: engine.to_string(),
             context_window: None,
         })
         .collect();
@@ -34,7 +39,9 @@ pub(super) async fn qoder_catalog(bin: &str) -> Result<EngineCatalog, String> {
     }
     if !models.is_empty() {
         let mut cached = CACHE.lock().unwrap_or_else(|e| e.into_inner());
-        *cached = Some(models.clone());
+        cached
+            .get_or_insert_with(HashMap::new)
+            .insert(engine, models.clone());
     }
     Ok(EngineCatalog::authoritative(models))
 }

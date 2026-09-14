@@ -474,7 +474,7 @@ fn extract_line_messages(engine: &str, value: &Value, images: ImageMode) -> Line
         "grok" => extract_grok_line(value),
         "codex" => extract_codex_line(value, images),
         "pi" | "omp" => extract_pi_family_line(value, images),
-        "qoder" => extract_qoder_line(value, images),
+        "qoder" | "qoder-cn" => extract_qoder_line(value, images),
         _ => Vec::new(),
     }
 }

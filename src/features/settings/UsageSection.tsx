@@ -117,6 +117,7 @@ const ENGINE_ICON_IDS: readonly EngineIconId[] = [
   "agy",
   "opencode",
   "qoder",
+  "qoder-cn",
 ];
 const isEngineIcon = (engine: string): engine is EngineIconId =>
   ENGINE_ICON_IDS.includes(engine as EngineIconId);

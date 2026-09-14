@@ -274,11 +274,16 @@ fn qoder_project_dirs(base: &Path, workspace: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// Qoder sessions: `~/.qoder/projects/<cwd-slug>/<sessionId>.jsonl`, one
-/// claude-shaped NDJSON file per session (reference qoder_history.rs).
-/// Slug-keyed per workspace, so discovery is a handful of readdirs.
-fn discover_qoder(workspace: &Path) -> Vec<SessionFile> {
-    let base = crate::engine::engine_home(None, ".qoder").join("projects");
+/// Qoder sessions: `<config-home>/projects/<cwd-slug>/<sessionId>.jsonl`, one
+/// claude-shaped NDJSON file per session (reference qoder_history.rs). Each
+/// distribution (Global `~/.qoder` / CN `~/.qoder-cn`) owns an independent
+/// home. Slug-keyed per workspace, so discovery is a handful of readdirs.
+fn discover_qoder(
+    workspace: &Path,
+    distribution: crate::engine::qoder::QoderDistribution,
+) -> Vec<SessionFile> {
+    let base =
+        crate::engine::engine_home(None, distribution.default_config_dir_name()).join("projects");
     let mut out = Vec::new();
     let mut seen_sessions = std::collections::HashSet::new();
     for dir in qoder_project_dirs(&base, workspace) {
@@ -297,7 +302,7 @@ fn discover_qoder(workspace: &Path) -> Vec<SessionFile> {
                 continue;
             }
             out.push(SessionFile {
-                engine: "qoder",
+                engine: distribution.engine_id(),
                 session_id: stem.to_string(),
                 workspace_path: workspace.to_string_lossy().to_string(),
                 file_path: path,
@@ -838,7 +843,8 @@ fn gather_candidates(workspaces: &[String]) -> Vec<Candidate> {
             .chain(discover_kimi(&workspace))
             .chain(discover_grok(&workspace))
             .chain(discover_agy(&workspace))
-            .chain(discover_qoder(&workspace))
+            .chain(discover_qoder(&workspace, crate::engine::qoder::QoderDistribution::Global))
+            .chain(discover_qoder(&workspace, crate::engine::qoder::QoderDistribution::Cn))
             .chain(discover_opencode(&workspace))
         {
             if seen_paths.insert(file.file_path.clone()) {
@@ -1660,11 +1666,34 @@ mod tests {
         std::fs::write(dir.join("notes.txt"), "x").unwrap();
 
         let _guard = HomeGuard::set(&home);
-        let found = discover_qoder(&workspace);
+        let found = discover_qoder(&workspace, crate::engine::qoder::QoderDistribution::Global);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].engine, "qoder");
         assert_eq!(found[0].session_id, "sess-1");
         assert_eq!(found[0].workspace_path, workspace.to_string_lossy());
+
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    #[test]
+    fn discover_qoder_cn_reads_the_cn_home() {
+        let home = scratch_dir("discover-qoder-cn");
+        let workspace = home.join("ws").join("proj");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let slug = qoder_encode_project_slug(&workspace.to_string_lossy());
+        let dir = home.join(".qoder-cn").join("projects").join(&slug);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("sess-cn.jsonl"), "{}\n").unwrap();
+
+        let _guard = HomeGuard::set(&home);
+        let found = discover_qoder(&workspace, crate::engine::qoder::QoderDistribution::Cn);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].engine, "qoder-cn");
+        assert_eq!(found[0].session_id, "sess-cn");
+        // The CN distribution never reads the Global home.
+        assert!(
+            discover_qoder(&workspace, crate::engine::qoder::QoderDistribution::Global).is_empty()
+        );
 
         std::fs::remove_dir_all(&home).ok();
     }
