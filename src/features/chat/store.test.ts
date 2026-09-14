@@ -11,6 +11,7 @@ vi.mock("@/lib/ipc", () => ({
     rememberSessionModel: vi.fn(async () => {}),
     rememberSessionEffort: vi.fn(async () => {}),
     loadSessionPage: vi.fn(async () => ({ messages: [], nextBefore: null, subagentHistory: [] })),
+    loadRemoteSessionPage: vi.fn(async () => ({ messages: [], nextBefore: null, subagentHistory: [] })),
     getAppSettings: vi.fn(async () => ({})),
     updateAppSettings: vi.fn(async () => {}),
     rescanSessions: vi.fn(async () => {}),
@@ -203,6 +204,33 @@ describe("compactContext and refreshSessionUsage", () => {
 
     expect(ipc.loadSessionPage).toHaveBeenCalledWith("claude", "sess-compact", 100);
     expect(useChatStore.getState().bySession[key]?.usage).toEqual(mockUsage);
+  });
+
+  it("loadHistoryPage routes remote metas through loadRemoteSessionPage", async () => {
+    useChatStore.setState({
+      sessions: [
+        {
+          engine: "codex",
+          sessionId: "remote-1",
+          workspacePath: WS,
+          filePath: "",
+          fileSize: 0,
+          fileMtimeMs: 0,
+          title: "remote",
+          preview: "",
+          createdAt: null,
+          updatedAt: null,
+          messageCount: 0,
+          pinned: false,
+          customTitle: null,
+          remote: true,
+          remotePath: "/home/u/x.jsonl",
+        } as any,
+      ],
+    });
+    await useChatStore.getState().selectSession("codex", "remote-1", WS);
+    expect(ipc.loadRemoteSessionPage).toHaveBeenCalledWith(WS, "codex", "remote-1", "/home/u/x.jsonl", 100, undefined);
+    expect(ipc.loadSessionPage).not.toHaveBeenCalledWith("codex", "remote-1", 100);
   });
 
   it("compactContext sends /compact and invokes refreshSessionUsage after compaction finishes", async () => {

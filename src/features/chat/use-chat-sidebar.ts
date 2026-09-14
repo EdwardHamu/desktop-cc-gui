@@ -7,6 +7,7 @@ import type { SessionMeta } from "@/lib/ipc";
 import { pickDirectory } from "@/lib/platform";
 import { useChatStore, sortedWorkspaceGroups } from "./store";
 import { relativeTime } from "./time";
+import { workspaceLabelSuffix } from "./workspace-ui-bridge";
 import type { ChatPageDialog } from "./ChatPageDialogs";
 
 /** Sidebar data and actions: the workspace/thread repo list plus thread
@@ -72,12 +73,13 @@ export function useChatSidebar({
       // Sidebar alias: a user-set name replaces the folder name in the
       // sidebar only; the original stays on the row tooltip.
       const alias = workspaceAliases[w.id]?.trim();
+      const suffix = workspaceLabelSuffix(w.path);
       return {
         id: w.id,
         label: alias || w.name,
         originalLabel: alias ? w.name : undefined,
+        labelSuffix: suffix ?? undefined,
         defaultOpen: index === 0,
-        threadLimit,
         threads: sorted.flatMap((s) => {
           if (s.workspacePath !== w.path) return [];
           return [

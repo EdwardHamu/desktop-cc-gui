@@ -24,6 +24,8 @@ import type {
 } from "@ccgui/plugin-sdk";
 import { assertPluginEmitTopic, pluginBus } from "./events";
 import { setActiveComposerDraft } from "./composer-draft";
+import { addPluginWorkspace, openPluginSession } from "./workspace-bridge";
+import { registerSessionSource } from "./session-source";
 import { runAsPlugin } from "./hardening";
 
 /** Storage transport the context talks to; the loader binds the IPC-backed
@@ -285,6 +287,25 @@ export function createPluginContext(
       setDraft(text) {
         requirePermission("composer:draft");
         setActiveComposerDraft(id, text);
+      },
+    },
+    workspaces: {
+      add(path, meta) {
+        requirePermission("host:workspace");
+        return addPluginWorkspace(id, path, meta);
+      },
+    },
+    sessions: {
+      selectSession(engine, sessionId, workspacePath) {
+        requirePermission("host:session");
+        openPluginSession(id, engine, sessionId, workspacePath);
+        return Promise.resolve();
+      },
+      registerSource(def) {
+        requirePermission("host:session");
+        return track(
+          registerSessionSource(id, def.id, () => runAsPlugin(def.list)),
+        );
       },
     },
     bridge: {

@@ -1,4 +1,5 @@
 use super::{parse_session_file, Message, ParsedSession, SessionMeta};
+use base64::Engine as _;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -320,17 +321,12 @@ fn subagent_history_row(message: &Message, delegation: bool) -> Message {
     }
 }
 
-/// Sync body of `load_session_page` (parsing multi-MB session files must not
-/// run on the IPC main thread).
-fn load_session_page_blocking(
-    db: &crate::db::Db,
-    engine: &str,
-    session_id: &str,
+/// Slice a cached parse into a page (shared by local and remote loaders).
+fn page_from_cached(
+    cached: &CachedSession,
     limit: Option<usize>,
     before_seq: Option<i64>,
-) -> Result<SessionPage, String> {
-    let path = session_file_path(db, engine, session_id)?;
-    let cached = cached_session(engine, &path)?;
+) -> SessionPage {
     let limit = limit.unwrap_or(100).clamp(1, 500);
     let messages = &cached.parsed.messages;
     let (page, next_before, start) = match before_seq {
@@ -357,11 +353,25 @@ fn load_session_page_blocking(
             (messages[start..].to_vec(), next, start)
         }
     };
-    Ok(SessionPage {
+    SessionPage {
         messages: page,
         next_before,
         subagent_history: subagent_history_until(messages, &cached.fold, start),
-    })
+    }
+}
+
+/// Sync body of `load_session_page` (parsing multi-MB session files must not
+/// run on the IPC main thread).
+fn load_session_page_blocking(
+    db: &crate::db::Db,
+    engine: &str,
+    session_id: &str,
+    limit: Option<usize>,
+    before_seq: Option<i64>,
+) -> Result<SessionPage, String> {
+    let path = session_file_path(db, engine, session_id)?;
+    let cached = cached_session(engine, &path)?;
+    Ok(page_from_cached(&cached, limit, before_seq))
 }
 
 #[tauri::command]
@@ -375,6 +385,57 @@ pub async fn load_session_page(
     let db = Arc::clone(&state.db);
     tauri::async_runtime::spawn_blocking(move || {
         load_session_page_blocking(&db, &engine, &session_id, limit, before_seq)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 远程工作区会话的历史回放:插件会话源把远端 jsonl 绝对路径随 `remotePath`
+/// 上报;这里经引擎 spawn 同一套远程通道 `base64` 拉回转录本,落到本机缓存
+/// 文件后复用既有解析/分页/子代理折叠。缓存文件仅在内容有变化时重写(stat
+/// 签名不变 → 翻页命中解析缓存,不重析)。
+#[tauri::command]
+pub async fn load_remote_session_page(
+    state: tauri::State<'_, crate::AppState>,
+    workspace_path: String,
+    engine: String,
+    session_id: String,
+    remote_path: String,
+    limit: Option<usize>,
+    before_seq: Option<i64>,
+) -> Result<SessionPage, String> {
+    use sha2::Digest as _;
+    if !remote_path.ends_with(".jsonl") || !remote_path.starts_with('/') {
+        return Err(format!("远程会话路径不合法: {remote_path}"));
+    }
+    let transport = crate::engine::wsl_transport::transport_for_workspace(&state.db, &workspace_path)
+        .ok_or_else(|| format!("工作区 {workspace_path} 未登记远程传输"))?;
+    let script = format!(
+        "base64 -w0 {}",
+        crate::engine::wsl_transport::sh_quote(&remote_path)
+    );
+    // run_script_output 已剥传输层噪声;载荷是单行 base64。
+    let raw = crate::engine::wsl_transport::run_script_output(&transport, &script).await?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(raw.trim())
+        .map_err(|e| format!("远程转录本解码失败: {e}"))?;
+
+    let dir = crate::paths::app_home().join("remote-sessions");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建缓存目录失败: {e}"))?;
+    let digest = sha2::Sha256::digest(format!("{workspace_path}|{engine}|{session_id}|{remote_path}"));
+    let name: String = digest[..16].iter().map(|b| format!("{b:02x}")).collect();
+    let cache_path = dir.join(format!("{name}.jsonl"));
+    let stale = std::fs::read(&cache_path).map(|old| old != bytes).unwrap_or(true);
+    if stale {
+        let tmp = dir.join(format!("{name}.jsonl.tmp"));
+        std::fs::write(&tmp, &bytes).map_err(|e| format!("写缓存失败: {e}"))?;
+        std::fs::rename(&tmp, &cache_path).map_err(|e| format!("缓存落位失败: {e}"))?;
+    }
+
+    let engine_for_parse = engine.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let cached = cached_session(&engine_for_parse, &cache_path)?;
+        Ok(page_from_cached(&cached, limit, before_seq))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -593,15 +654,21 @@ pub struct Workspace {
     pub sort_order: Option<i64>,
     /// Sidebar group (工作区分组) this workspace belongs to; None = ungrouped.
     pub group_id: Option<String>,
+    /// Opaque metadata written via host-capability callers (plugin
+    /// `workspaces.add`); absent for ordinary directories. The backend never
+    /// interprets it — consumers (spawn transport, plugin panels) own the shape.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meta: Option<serde_json::Value>,
 }
 
 #[tauri::command]
 pub fn list_workspaces(state: tauri::State<'_, crate::AppState>) -> Result<Vec<Workspace>, String> {
     query_rows(
         &state,
-        "SELECT id, path, name, last_opened_at, sort_order, group_id FROM workspaces
+        "SELECT id, path, name, last_opened_at, sort_order, group_id, meta FROM workspaces
          ORDER BY sort_order IS NULL, sort_order, COALESCE(last_opened_at, 0) DESC",
         |r| {
+            let meta_json: Option<String> = r.get(6)?;
             Ok(Workspace {
                 id: r.get(0)?,
                 path: r.get(1)?,
@@ -609,6 +676,7 @@ pub fn list_workspaces(state: tauri::State<'_, crate::AppState>) -> Result<Vec<W
                 last_opened_at: r.get(3)?,
                 sort_order: r.get(4)?,
                 group_id: r.get(5)?,
+                meta: meta_json.and_then(|s| serde_json::from_str(&s).ok()),
             })
         },
     )
@@ -618,31 +686,44 @@ pub fn list_workspaces(state: tauri::State<'_, crate::AppState>) -> Result<Vec<W
 pub fn add_workspace(
     state: tauri::State<'_, crate::AppState>,
     path: String,
+    meta: Option<serde_json::Value>,
 ) -> Result<Workspace, String> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
         return Err("empty path".to_string());
     }
-    let dir = std::path::PathBuf::from(trimmed);
-    if !dir.is_dir() {
-        return Err(format!("not a directory: {trimmed}"));
+    // Host-capability callers (plugin workspaces.add) may register paths that
+    // do not exist on this machine (remote host / WSL distro) — meta presence
+    // is the opt-in that skips the local is_dir check.
+    if meta.is_none() {
+        let dir = std::path::PathBuf::from(trimmed);
+        if !dir.is_dir() {
+            return Err(format!("not a directory: {trimmed}"));
+        }
     }
-    let name = dir
+    if let Some(m) = &meta {
+        if m.as_object().is_none_or(|o| o.is_empty()) {
+            return Err("meta must be a non-empty object when provided".to_string());
+        }
+    }
+    let name = std::path::Path::new(trimmed)
         .file_name()
         .and_then(|n| n.to_str())
-        .unwrap_or(trimmed)
-        .to_string();
+        .map(str::to_string)
+        .unwrap_or_else(|| trimmed.trim_end_matches(['/', '\\']).to_string());
     let id = uuid::Uuid::new_v4().to_string();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0);
+    let meta_json = meta.as_ref().map(|m| m.to_string());
     {
         let conn = state.db.0.lock();
         conn.execute(
-            "INSERT INTO workspaces(id, path, name, last_opened_at) VALUES(?1,?2,?3,?4)
-             ON CONFLICT(path) DO UPDATE SET last_opened_at=excluded.last_opened_at",
-            rusqlite::params![id, trimmed, name, now],
+            "INSERT INTO workspaces(id, path, name, last_opened_at, meta) VALUES(?1,?2,?3,?4,?5)
+             ON CONFLICT(path) DO UPDATE SET last_opened_at=excluded.last_opened_at,
+                meta=COALESCE(excluded.meta, workspaces.meta)",
+            rusqlite::params![id, trimmed, name, now, meta_json],
         )
         .map_err(|e| e.to_string())?;
     }
@@ -654,9 +735,9 @@ pub fn add_workspace(
         last_opened_at: Some(now),
         sort_order: None,
         group_id: None,
+        meta,
     })
 }
-
 /// Assign a workspace to a sidebar group (None = ungrouped). The group must
 /// exist in app settings so a deleted group never lingers on a row.
 #[tauri::command]

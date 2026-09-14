@@ -9,6 +9,19 @@ import type { ComposerSlotId } from "./registry";
  * contract-check.ts 在类型层面把守）。
  */
 
+/** 外部会话源行(ctx.sessions.registerSource,0.3.4 起):插件上报的
+ *  远端/容器内会话摘要。workspacePath 必须是已登记工作区的 path,否则
+ *  宿主合并时丢弃(侧栏按 workspacePath 分组)。 */
+export interface ExternalSessionRow {
+  engine: string;
+  sessionId: string;
+  workspacePath: string;
+  title?: string;
+  updatedAt?: number | null;
+  /** 远端 jsonl 绝对路径(可选;宿主历史回放经远程通道拉取)。 */
+  remotePath?: string;
+}
+
 export interface PluginContext {
   pluginId: string;
   version: string;
@@ -110,6 +123,25 @@ export interface PluginContext {
    *  写入即替换当前活动会话的草稿；不触发发送——发送永远是用户动作。 */
   composer: {
     setDraft(text: string): void;
+  };
+  /** 工作区登记（权限 `host:workspace`，0.3.3 起）。把任意路径登记为侧栏
+   *  工作区——不要求本机存在该目录（如经 ssh 管理的远程机/WSL 发行版内
+   *  路径）。`meta` 透传存储在宿主工作区行上，形状由写入方与消费方约定。 */
+  workspaces: {
+    add(path: string, meta?: Record<string, unknown>): Promise<void>;
+  };
+  /** 会话打开 + 外部会话源(权限 `host:session`;selectSession 0.3.3 起,
+   *  registerSource 0.3.4 起)。registerSource:登记异步会话源,宿主在会话
+   *  目录刷新(init/refreshSessions/rescan)时调用 `list()` 并把行合并进
+   *  侧栏列表——本机扫描结果优先,同 engine/sessionId/workspacePath 的外部
+   *  行被丢弃。返回 Disposer,插件卸载时自动注销。 */
+  sessions: {
+    selectSession(engine: string, sessionId: string, workspacePath: string): Promise<void>;
+    registerSource(def: {
+      /** 源 id,插件内唯一;同 id 重复登记覆盖(热重载语义)。 */
+      id: string;
+      list: () => Promise<ExternalSessionRow[]>;
+    }): Disposer;
   };
   /** 通用能力出口（0.3.0 起；旧的 `cmd:<command>` 逐命令授权机制已删除）。
    *  仅四条命令，`pluginId` 由宿主自动注入（插件无需也不能传）：

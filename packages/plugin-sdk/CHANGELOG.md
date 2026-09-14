@@ -1,5 +1,11 @@
 # @ccgui/plugin-sdk changelog
 
+## 0.3.4 — 2026-09-14
+- **新增能力**:`ctx.sessions.registerSource({ id, list })`(权限 `host:session`)——登记
+  外部会话源(远程机/容器内 CLI 的会话摘要),宿主在会话目录刷新时调用 `list()` 并把行合并进
+  侧栏列表;本机扫描结果优先,行 `workspacePath` 须为已登记工作区 path。配套类型
+  `ExternalSessionRow`;返回 Disposer,卸载自动注销。
+
 ## 0.3.2 — 2026-09-12
 - **新增能力**：`ctx.composer.setDraft(text)`（权限 `composer:draft`）——写入当前活动会话的
   聊天输入框草稿；替换语义，不触发发送。配合既有 `composer://draft` 事件（host→plugin）构成
