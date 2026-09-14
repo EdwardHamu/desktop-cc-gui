@@ -106,7 +106,18 @@ function ShareBar({ pct }: { pct: number }) {
   );
 }
 
-const ENGINE_ICON_IDS: readonly EngineIconId[] = ["claude", "codex", "grok", "kimi", "pi", "omp", "dsh", "agy"];
+const ENGINE_ICON_IDS: readonly EngineIconId[] = [
+  "claude",
+  "codex",
+  "grok",
+  "kimi",
+  "pi",
+  "omp",
+  "dsh",
+  "agy",
+  "opencode",
+  "qoder",
+];
 const isEngineIcon = (engine: string): engine is EngineIconId =>
   ENGINE_ICON_IDS.includes(engine as EngineIconId);
 

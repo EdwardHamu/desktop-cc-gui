@@ -373,6 +373,8 @@ export const zh = {
       omp: "OMP",
       dsh: "DeepSeek Harness",
       agy: "Antigravity",
+      opencode: "OpenCode",
+      qoder: "Qoder CLI",
     },
     cliManage: "CLI 管理",
     cliDocs: "官方文档",

@@ -10,6 +10,8 @@ export const CLI_DISPLAY_NAMES: Record<string, string> = {
   omp: "OMP CLI",
   dsh: "DeepSeek Harness",
   agy: "Antigravity CLI",
+  opencode: "OpenCode",
+  qoder: "Qoder CLI",
 };
 
 /**
