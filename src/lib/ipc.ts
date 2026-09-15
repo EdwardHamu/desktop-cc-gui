@@ -267,6 +267,10 @@ export interface FileContent {
   text: string | null;
   dataUrl: string | null;
   truncated: boolean;
+  /** Served by a remote reader (e.g. WSL distro, features/files/remote-files):
+   *  content is complete but writes are unsupported, so the editor stays
+   *  read-only — distinct from `truncated`, which means partial content. */
+  readOnly?: boolean;
 }
 /** Result of `duplicate_item` / `paste_item`: the created destination. */
 export interface FileOpResult {

@@ -45,15 +45,15 @@ pub struct WslTransport {
 pub fn from_workspace_meta(meta: &serde_json::Value) -> Option<WslTransport> {
     let wsl = meta.get("wsl")?;
     let host = wsl.get("host")?.as_str()?.trim().to_string();
-    if host.is_empty() {
+    if !is_safe_host(&host) {
         return None;
     }
     let user = wsl.get("user")?.as_str()?.trim().to_string();
-    if user.is_empty() {
+    if !is_safe_user(&user) {
         return None;
     }
     let distro = wsl.get("distro")?.as_str()?.trim().to_string();
-    if distro.is_empty() {
+    if !is_safe_distro(&distro) {
         return None;
     }
     let engine_paths = wsl
@@ -90,27 +90,84 @@ pub fn from_workspace_meta(meta: &serde_json::Value) -> Option<WslTransport> {
     })
 }
 
+/// meta.wsl 字段字符白名单 —— 这些值来自插件/IPC 写入的 db 行,之后会拼进
+/// 本机 ssh argv 与远端 Windows 命令串,解析入口统一收口,违例整体按 None
+/// (本地工作区)处理,fail-closed。
+
+/// ssh 登录名:Linux 用户名字符集,且不得以 `-` 开头 —— 否则 `user@host`
+/// 整体会被 ssh 的 getopt 当成选项吞掉(`-oProxyCommand=…` → 本机命令执行)。
+fn is_safe_user(user: &str) -> bool {
+    !user.is_empty()
+        && !user.starts_with('-')
+        && user
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
+/// 主机地址:IP/主机名/IPv6,同样不得以 `-` 开头(getopt 选项注入)。
+fn is_safe_host(host: &str) -> bool {
+    !host.is_empty()
+        && !host.starts_with('-')
+        && host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | ':'))
+}
+
+/// 发行版名:拼进远端 DefaultShell 解释的双引号串,PowerShell 下 `$(…)`/
+/// 反引号、cmd 下 `%VAR%` 在引号内仍会求值 —— 只放行字母数字与 `._- `。
+fn is_safe_distro(distro: &str) -> bool {
+    !distro.is_empty()
+        && distro
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | ' '))
+}
+
+/// 发行版内工作区路径白名单(脚本内不加引号直排 `cd <ws>`:bash 对行首
+/// `~` 原生 tilde 展开;空格/`$`/`;` 等一律拒绝)。send 路径的
+/// build_script 与 catalog 路径的 models/wsl.rs 共用同一规则。
+pub(crate) fn is_safe_workspace(ws: &str) -> bool {
+    !ws.is_empty()
+        && ws
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '_' | '.' | '-' | '~'))
+}
+
 /// 单个 argv 元素的 POSIX 单引号包裹(bash 脚本内)。
 pub(crate) fn sh_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
 }
 
-/// 从 tokio Command 抽取 program + args(构造点都在本 crate 内,env 由远端
-/// CLI 自己的配置文件提供;本地 env 不跨机传递)。
-fn program_and_args(command: &Command) -> Result<(String, Vec<String>), String> {
+/// 从 tokio Command 抽取 program + args + 显式 env(构造点都在本 crate 内,
+/// get_envs 只含 build_command 显式设置的项,不含继承环境)。env 经脚本头
+/// `export` 跨机传递(MAX_THINKING_TOKENS 等;值一律 sh_quote)。
+fn program_args_env(command: &Command) -> (String, Vec<String>, Vec<(String, String)>) {
     let std_cmd = command.as_std();
     let program = std_cmd.get_program().to_string_lossy().into_owned();
     let args = std_cmd
         .get_args()
         .map(|a| a.to_string_lossy().into_owned())
         .collect();
-    Ok((program, args))
+    let envs = std_cmd
+        .get_envs()
+        .filter_map(|(k, v)| {
+            let key = k.to_string_lossy().into_owned();
+            // env 键必须是合法 shell 标识符,否则宁可丢掉也不进脚本
+            let valid = key.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+                && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            let value = v?.to_string_lossy().into_owned();
+            valid.then(|| (key, value))
+        })
+        .collect();
+    (program, args, envs)
 }
 
 /// ssh 公共选项(key 认证 BatchMode;ControlMaster 存在则复用免密)。
 fn ssh_options(transport: &WslTransport) -> Vec<String> {
     let mut opts = vec![
         "-o".to_string(),
+        // 首连信任(TOFU):已知主机之后的改动仍会拦,但首次连接不验指纹 ——
+        // LAN 上首连可被 MITM 而无感知。可用性权衡:首次接入提示交给插件
+        // 连接流程;若后续要硬约束,可让 meta 携带已知主机指纹。
         "StrictHostKeyChecking=accept-new".to_string(),
         "-o".to_string(),
         "ConnectTimeout=10".to_string(),
@@ -138,6 +195,18 @@ fn ssh_target(transport: &WslTransport) -> String {
     format!("{}@{}", transport.user, transport.host)
 }
 
+/// 公共 ssh 命令骨架:选项 + `--` + destination。`--` 终结 getopt 解析,
+/// destination 永远不被当成选项(user/host 另有白名单,这里是纵深防御)。
+fn base_ssh_command(transport: &WslTransport) -> Command {
+    let mut command = Command::new("ssh");
+    for opt in ssh_options(transport) {
+        command.arg(opt);
+    }
+    command.arg("--");
+    command.arg(ssh_target(transport));
+    command
+}
+
 fn wsl_command_string(transport: &WslTransport, remote_argv: &[&str]) -> String {
     let distro = transport.distro.replace('"', "");
     let joined = remote_argv
@@ -145,7 +214,8 @@ fn wsl_command_string(transport: &WslTransport, remote_argv: &[&str]) -> String 
         .map(|a| {
             // Windows-side quoting for the string the remote DefaultShell will
             // hand to wsl.exe: double quotes, no $ / backtick / | inside (the
-            // caller guarantees the safe charset).
+            // caller guarantees the safe charset: tee/bash 与 UUID 路径是固定词,
+            // distro 在 from_workspace_meta 已过白名单,replace 只是纵深防御).
             format!("\"{a}\"")
         })
         .collect::<Vec<_>>()
@@ -171,17 +241,28 @@ fn resolve_remote_program(program: &str, transport: &WslTransport) -> String {
     format!("__RESOLVE__{base}")
 }
 
-/// 生成发行版内执行的脚本文本。workspace 路径来自插件登记(插件侧白名单
-/// `[A-Za-z0-9_./~-]` 校验),**不加引号**直排 —— bash 对行首 `~` 原生
-/// tilde 展开(tmd 2026-09-13 真机验证形态;引号内 `~` 不展开,手动
-/// `$HOME` 拼接是 Fragile 的)。
-fn build_script(program: &str, args: &[String], transport: &WslTransport) -> String {
+/// 生成发行版内执行的脚本文本。workspace 路径来自插件登记(白名单见
+/// is_safe_workspace),**不加引号**直排 —— bash 对行首 `~` 原生 tilde
+/// 展开(tmd 2026-09-13 真机验证形态;引号内 `~` 不展开,手动 `$HOME`
+/// 拼接是 Fragile 的)。
+fn build_script(
+    program: &str,
+    args: &[String],
+    envs: &[(String, String)],
+    transport: &WslTransport,
+) -> String {
     let mut script = String::new();
     script.push_str("set -e\n");
+    // 脚本落盘即删:bash 对已打开的 fd 继续读取不受 unlink 影响(exec 替换
+    // 进程镜像也能删,EXIT trap 在 exec 下不会触发,故不用 trap)。
+    script.push_str("rm -f \"$0\"\n");
+    // build_command 显式设置的 env 跨机传递(键已限 shell 标识符,值一律
+    // 单引号包裹):MAX_THINKING_TOKENS / GROK_DISABLE_AUTOUPDATER 等。
+    for (key, value) in envs {
+        script.push_str(&format!("export {key}={}\n", sh_quote(value)));
+    }
     if let Some(ws) = &transport.workspace {
-        if ws.is_empty()
-            || ws.chars().any(|c| !(c.is_ascii_alphanumeric() || matches!(c, '/' | '_' | '.' | '-' | '~')))
-        {
+        if !is_safe_workspace(ws) {
             return format!("echo 'workspace 路径含不支持的字符' >&2; exit 60\n");
         }
         script.push_str(&format!("cd {ws} || exit 61\n"));
@@ -214,16 +295,14 @@ async fn upload_script(
     script_body: &str,
     remote_path: &str,
 ) -> Result<(), String> {
-    let mut command = Command::new("ssh");
-    for opt in ssh_options(transport) {
-        command.arg(opt);
-    }
-    command.arg(ssh_target(transport));
+    let mut command = base_ssh_command(transport);
     command.arg(wsl_command_string(transport, &["tee", remote_path]));
+    // stderr 直接丢弃:从不读取却 piped 会在远端写满管缓冲时与 wait 互等
+    // 死锁;错误细节本就不进报错文案(下面是固定提示)。
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
-        .stderr(Stdio::piped());
+        .stderr(Stdio::null());
     let mut child = command
         .spawn()
         .map_err(|e| format!("ssh 脚本上传失败: {e}"))?;
@@ -256,8 +335,8 @@ pub struct Wrapped {
 
 /// 把 build_command 产出的引擎命令包装成远程 ssh 执行。失败返回 Err。
 pub async fn wrap(command: Command, transport: &WslTransport) -> Result<Wrapped, String> {
-    let (program, args) = program_and_args(&command)?;
-    let script = build_script(&program, &args, transport);
+    let (program, args, envs) = program_args_env(&command);
+    let script = build_script(&program, &args, &envs, transport);
     let script_id = uuid::Uuid::new_v4().simple().to_string();
     let remote_path = format!("/tmp/ccgui-wsl-{script_id}.sh");
     upload_script(transport, &script, &remote_path).await?;
@@ -265,11 +344,7 @@ pub async fn wrap(command: Command, transport: &WslTransport) -> Result<Wrapped,
     let local_tmp = std::env::temp_dir().join(format!("ccgui-wsl-{script_id}.marker"));
     std::fs::write(&local_tmp, b"").map_err(|e| format!("临时文件写入失败: {e}"))?;
 
-    let mut wrapped = Command::new("ssh");
-    for opt in ssh_options(transport) {
-        wrapped.arg(opt);
-    }
-    wrapped.arg(ssh_target(transport));
+    let mut wrapped = base_ssh_command(transport);
     // 脚本已明文落盘,run 串只含固定词。
     wrapped.arg(wsl_command_string(transport, &["bash", &remote_path]));
     Ok(Wrapped {
@@ -313,12 +388,10 @@ pub async fn run_script_output(
 ) -> Result<String, String> {
     let script_id = uuid::Uuid::new_v4().simple().to_string();
     let remote_path = format!("/tmp/ccgui-wsl-{script_id}.sh");
-    upload_script(transport, script_body, &remote_path).await?;
-    let mut command = Command::new("ssh");
-    for opt in ssh_options(transport) {
-        command.arg(opt);
-    }
-    command.arg(ssh_target(transport));
+    // 调用方脚本同样落盘即删(bash 从已打开 fd 继续读,unlink 不影响执行)。
+    let body = format!("rm -f \"$0\"\n{script_body}");
+    upload_script(transport, &body, &remote_path).await?;
+    let mut command = base_ssh_command(transport);
     command.arg(wsl_command_string(transport, &["bash", &remote_path]));
     command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     let output = command
@@ -404,6 +477,7 @@ mod tests {
         let script = build_script(
             "/Users/x/.local/bin/omp",
             &["-p".into(), "hello world".into(), "--resume".into(), "s-1".into()],
+            &[],
             &tp(),
         );
         assert!(script.starts_with("set -e\n"));
@@ -419,7 +493,7 @@ mod tests {
     fn script_keeps_tilde_unquoted_for_native_expansion() {
         let mut t = tp();
         t.workspace = Some("~/code/proj".into());
-        let script = build_script("omp", &[], &t);
+        let script = build_script("omp", &[], &[], &t);
         assert!(script.contains("cd ~/code/proj || exit 61"));
         // 引号包裹会杀死 bash 的 tilde 展开 —— 绝不能出现
         assert!(!script.contains("\"~/"));
@@ -429,13 +503,13 @@ mod tests {
     fn script_rejects_space_paths() {
         let mut t = tp();
         t.workspace = Some("/home/dev/my proj".into());
-        let script = build_script("omp", &[], &t);
+        let script = build_script("omp", &[], &[], &t);
         assert!(script.contains("exit 60"));
     }
 
     #[test]
     fn script_falls_back_to_command_v() {
-        let script = build_script("kimi", &[], &tp());
+        let script = build_script("kimi", &[], &[], &tp());
         assert!(script.contains("bin=$(bash -lc 'command -v kimi') || exit 62"));
         assert!(script.contains("exec \"$bin\""));
     }
@@ -445,5 +519,81 @@ mod tests {
         let s = wsl_command_string(&tp(), &["bash", "/tmp/x.sh"]);
         assert_eq!(s, "wsl.exe -d \"Ubuntu-22.04\" -- \"bash\" \"/tmp/x.sh\"");
         assert!(!s.contains('$') && !s.contains('|') && !s.contains('`'));
+    }
+
+    #[test]
+    fn meta_rejects_ssh_option_injection_user() {
+        // user 以 `-` 开头:`user@host` 会被 ssh getopt 吞成 -o 选项
+        // (ProxyCommand → 本机命令执行),必须整个拒绝。
+        let meta = json!({"wsl": {
+            "host": "10.0.0.2", "user": "-oProxyCommand=/tmp/evil@x", "distro": "Ubuntu"
+        }});
+        assert!(from_workspace_meta(&meta).is_none());
+    }
+
+    #[test]
+    fn meta_rejects_dash_host_and_bad_chars() {
+        for host in ["-oProxyCommand=x", "ho st", "ho;st", "ho`id`st"] {
+            let meta = json!({"wsl": { "host": host, "user": "dev", "distro": "Ubuntu" }});
+            assert!(from_workspace_meta(&meta).is_none(), "host: {host}");
+        }
+        // IPv6 / 主机名 / 带点用户名为合法形态
+        let meta = json!({"wsl": {
+            "host": "::1", "user": "dev.ops-1_x", "distro": "Ubuntu"
+        }});
+        assert!(from_workspace_meta(&meta).is_some());
+    }
+
+    #[test]
+    fn meta_rejects_distro_shell_chars() {
+        // PowerShell 双引号内 $(…)/反引号仍求值,cmd 下 %VAR% 仍展开
+        for distro in ["Ubuntu$(id)", "u`id`", "u%PATH%", "u\"&id", "u|id"] {
+            let meta = json!({"wsl": { "host": "10.0.0.2", "user": "dev", "distro": distro }});
+            assert!(from_workspace_meta(&meta).is_none(), "distro: {distro}");
+        }
+        let meta = json!({"wsl": {
+            "host": "10.0.0.2", "user": "dev", "distro": "Ubuntu-22.04 LTS"
+        }});
+        assert!(from_workspace_meta(&meta).is_some());
+    }
+
+    #[test]
+    fn workspace_allowlist() {
+        assert!(is_safe_workspace("/home/dev/proj"));
+        assert!(is_safe_workspace("~/code/proj"));
+        assert!(!is_safe_workspace("/home/dev/my proj"));
+        assert!(!is_safe_workspace("/a;id"));
+        assert!(!is_safe_workspace("/a$(id)"));
+        assert!(!is_safe_workspace(""));
+    }
+
+    #[test]
+    fn script_exports_env_and_self_deletes() {
+        let envs = vec![(
+            "MAX_THINKING_TOKENS".to_string(),
+            "65536".to_string(),
+        )];
+        let script = build_script("omp", &[], &envs, &tp());
+        // 落盘即删(exec 下 trap 不触发,unlink 已打开 fd 的脚本仍然安全)
+        assert!(script.contains("rm -f \"$0\""));
+        assert!(script.contains("export MAX_THINKING_TOKENS='65536'"));
+        // 值含单引号/空白也走 sh_quote,不直接拼接
+        let envs = vec![("X_Y".to_string(), "a'b c".to_string())];
+        let script = build_script("omp", &[], &envs, &tp());
+        assert!(script.contains("export X_Y='a'\\''b c'"));
+    }
+
+    #[test]
+    fn ssh_command_separates_destination_with_double_dash() {
+        let cmd = base_ssh_command(&tp());
+        let args: Vec<String> = cmd
+            .as_std()
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        let dashdash = args.iter().position(|a| a == "--").expect("missing --");
+        // `--` 之后紧跟 destination,且 destination 之前没有任何非选项值
+        assert_eq!(args[dashdash + 1], "dev@10.0.0.2");
+        assert!(args[..dashdash].iter().all(|a| a.starts_with('-') || !a.contains('@')));
     }
 }

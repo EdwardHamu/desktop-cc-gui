@@ -7,7 +7,7 @@ import type { SessionMeta } from "@/lib/ipc";
 import { pickDirectory } from "@/lib/platform";
 import { useChatStore, sortedWorkspaceGroups } from "./store";
 import { relativeTime } from "./time";
-import { workspaceLabelSuffix } from "./workspace-ui-bridge";
+import { useWorkspaceUIHooks, workspaceLabelSuffix } from "./workspace-ui-bridge";
 import type { ChatPageDialog } from "./ChatPageDialogs";
 
 /** Sidebar data and actions: the workspace/thread repo list plus thread
@@ -55,6 +55,8 @@ export function useChatSidebar({
   // Archived workspaces hide from the main tree; everything else (group
   // bucketing, ordering, aliases) works on the visible subset.
   const archivedIds = useMemo(() => new Set(archivedWorkspaces), [archivedWorkspaces]);
+  // 订阅插件桥:插件 activate/热重载换 hooks 后,侧栏徽标随之重算。
+  const uiHooks = useWorkspaceUIHooks();
   const visibleWorkspaces = useMemo(
     () => workspaces.filter((w) => !archivedIds.has(w.id)),
     [workspaces, archivedIds],
@@ -80,6 +82,7 @@ export function useChatSidebar({
         originalLabel: alias ? w.name : undefined,
         labelSuffix: suffix ?? undefined,
         defaultOpen: index === 0,
+        threadLimit,
         threads: sorted.flatMap((s) => {
           if (s.workspacePath !== w.path) return [];
           return [
@@ -96,7 +99,7 @@ export function useChatSidebar({
         }),
       };
     });
-  }, [visibleWorkspaces, workspaceAliases, sessions, threadLimit, threadStreaming, unseen, i18n.language]);
+  }, [visibleWorkspaces, workspaceAliases, sessions, threadLimit, threadStreaming, unseen, i18n.language, uiHooks]);
   // 工作区二级分类: bucket repos by their workspace's group assignment.
   // Ungrouped repos come first (no header), then groups in settings order;
   // empty groups are hidden (matches the reference sidebar).

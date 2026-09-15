@@ -126,7 +126,14 @@ export interface PluginContext {
   };
   /** 工作区登记（权限 `host:workspace`，0.3.3 起）。把任意路径登记为侧栏
    *  工作区——不要求本机存在该目录（如经 ssh 管理的远程机/WSL 发行版内
-   *  路径）。`meta` 透传存储在宿主工作区行上，形状由写入方与消费方约定。 */
+   *  路径）。`meta` 透传存储在宿主工作区行上，形状由写入方与消费方约定。
+   *
+   *  `meta` 携带 `wsl` 键（远程工作区，宿主引擎经 ssh 把会话流量导到
+   *  meta.wsl 指定的主机与发行版）需要额外权限 `host:workspace:remote`
+   *  （0.3.4 起）——这等效于出网 + 远程执行导向，远超登记一行侧栏数据。
+   *  信任权衡：远程通道首连采用 StrictHostKeyChecking=accept-new
+   *  （首连自动记录 host key，之后变更才拒绝），插件作者应知晓这是
+   *  TOFU 而非严格 pinning。 */
   workspaces: {
     add(path: string, meta?: Record<string, unknown>): Promise<void>;
   };

@@ -10,10 +10,10 @@ pub(super) async fn pi_family_catalog_remote(
     engine: &str,
     transport: &WslTransport,
 ) -> EngineCatalog {
-    let Some(bin) = bin_for(transport, engine) else {
+    let (Some(bin), Some(cwd)) = (bin_for(transport, engine), remote_cwd(transport)) else {
         return EngineCatalog::authoritative_remote(Vec::new());
     };
-    let script = format!("cd {cwd} 2>/dev/null; {bin} models --json", cwd = remote_cwd(transport));
+    let script = format!("cd {cwd} 2>/dev/null; {bin} models --json");
     match crate::engine::wsl_transport::run_script_output(transport, &script).await {
         Ok(stdout) => match pi::parse_models_json(&stdout) {
             Ok(models) if !models.is_empty() => EngineCatalog::authoritative_remote(models),
@@ -26,10 +26,10 @@ pub(super) async fn pi_family_catalog_remote(
 /// Codex 远程目录:`<bin> debug models`(与本机 codex_catalog 同一命令),
 /// 失败/为空时回退发行版 `$CODEX_HOME/config.toml` 的 model= 单条。
 pub(super) async fn codex_catalog_remote(transport: &WslTransport) -> EngineCatalog {
-    let Some(bin) = bin_for(transport, "codex") else {
+    let (Some(bin), Some(cwd)) = (bin_for(transport, "codex"), remote_cwd(transport)) else {
         return EngineCatalog::authoritative_remote(Vec::new());
     };
-    let script = format!("cd {cwd} 2>/dev/null; {bin} debug models 2>/dev/null", cwd = remote_cwd(transport));
+    let script = format!("cd {cwd} 2>/dev/null; {bin} debug models 2>/dev/null");
     if let Ok(stdout) = crate::engine::wsl_transport::run_script_output(transport, &script).await {
         if let Ok(models) = super::codex::parse_codex_models_json(&stdout) {
             if !models.is_empty() {
@@ -47,10 +47,10 @@ pub(super) async fn codex_catalog_remote(transport: &WslTransport) -> EngineCata
 
 /// Kimi 远程目录:`<bin> provider list --json`(与本机同命令)。
 pub(super) async fn kimi_catalog_remote(transport: &WslTransport) -> EngineCatalog {
-    let Some(bin) = bin_for(transport, "kimi") else {
+    let (Some(bin), Some(cwd)) = (bin_for(transport, "kimi"), remote_cwd(transport)) else {
         return EngineCatalog::authoritative_remote(Vec::new());
     };
-    let script = format!("cd {cwd} 2>/dev/null; {bin} provider list --json 2>/dev/null", cwd = remote_cwd(transport));
+    let script = format!("cd {cwd} 2>/dev/null; {bin} provider list --json 2>/dev/null");
     let default = kimi_config_model_remote(transport).await;
     if let Ok(stdout) = crate::engine::wsl_transport::run_script_output(transport, &script).await {
         let models = super::kimi::parse_kimi_provider_list(&stdout);
@@ -86,11 +86,16 @@ async fn kimi_config_model_remote(transport: &WslTransport) -> Option<EngineMode
 /// `$CLAUDE_CONFIG_DIR` 的 settings.json / settings.local.json(与本机
 /// read_cli_config_from 同一合并语义),复现 distro 自己的 /model 菜单。
 pub(super) async fn claude_catalog_remote(transport: &WslTransport) -> EngineCatalog {
-    let script = r#"d="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"; cat "$d/settings.json" 2>/dev/null; echo "=CCGUI_SEP="; cat "$d/settings.local.json" 2>/dev/null"#;
-    let out = crate::engine::wsl_transport::run_script_output(transport, script)
+    // 随机分隔符:固定串可能出现在 settings 内容里(env 值等),split_once
+    // 取首次出现会把 user settings 后半截当 local 合并,优先级错乱。
+    let sep = format!("=CCGUI_SEP_{}=", uuid::Uuid::new_v4().simple());
+    let script = format!(
+        r#"d="${{CLAUDE_CONFIG_DIR:-$HOME/.claude}}"; cat "$d/settings.json" 2>/dev/null; echo "{sep}"; cat "$d/settings.local.json" 2>/dev/null"#
+    );
+    let out = crate::engine::wsl_transport::run_script_output(transport, &script)
         .await
         .unwrap_or_default();
-    let (user, local) = match out.split_once("=CCGUI_SEP=") {
+    let (user, local) = match out.split_once(&sep) {
         Some((u, l)) => (u, l),
         None => (out.as_str(), ""),
     };
@@ -120,11 +125,14 @@ async fn codex_config_model_remote(transport: &WslTransport) -> Option<EngineMod
     })
 }
 
-fn remote_cwd(transport: &WslTransport) -> String {
-    transport
-        .workspace
-        .clone()
-        .unwrap_or_else(|| "~".to_string())
+/// 发行版内 `cd` 目标;workspace 字符白名单与 send 路径 build_script 同一
+/// 规则(is_safe_workspace),违例返回 None —— 调用方给空 catalog,绝不
+/// 拿违例路径发脚本(此前 catalog 路径绕过白名单直排,是注入面)。
+fn remote_cwd(transport: &WslTransport) -> Option<String> {
+    match &transport.workspace {
+        Some(ws) => crate::engine::wsl_transport::is_safe_workspace(ws).then(|| ws.clone()),
+        None => Some("~".to_string()),
+    }
 }
 
 /// 探针写入的路径来自 `command -v` 输出(发行版内绝对路径),再过一遍
@@ -146,5 +154,29 @@ mod tests {
         assert_eq!(shell_safe_bin("/x; rm -rf /"), "");
         assert_eq!(shell_safe_bin("/a b/c"), "");
         assert_eq!(shell_safe_bin(""), "");
+    }
+
+    fn tp(workspace: Option<&str>) -> WslTransport {
+        WslTransport {
+            host: "10.0.0.2".into(),
+            port: 22,
+            user: "dev".into(),
+            distro: "Ubuntu".into(),
+            control_path: None,
+            engine_paths: Default::default(),
+            workspace: workspace.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn remote_cwd_rejects_injection_shaped_workspace() {
+        // catalog 脚本直排 `cd <cwd>`,违例 workspace 必须拿不到 cwd
+        // (空 catalog),而不是拼进脚本(catalog 路径曾与 build_script
+        // 白名单脱节,是注入面)。
+        assert_eq!(remote_cwd(&tp(Some("/home/dev/proj"))).as_deref(), Some("/home/dev/proj"));
+        assert_eq!(remote_cwd(&tp(None)).as_deref(), Some("~"));
+        assert!(remote_cwd(&tp(Some("/home/dev/my proj"))).is_none());
+        assert!(remote_cwd(&tp(Some("/x;id"))).is_none());
+        assert!(remote_cwd(&tp(Some("/x$(id)"))).is_none());
     }
 }

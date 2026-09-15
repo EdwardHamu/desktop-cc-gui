@@ -12,6 +12,8 @@
  * registering plugin — the host never interprets meta contents.
  */
 
+import { useSyncExternalStore } from "react";
+
 export interface WorkspaceUIHooks {
   allowedEngines(workspacePath: string): string[] | null;
   labelSuffix(workspacePath: string): string | null;
@@ -28,13 +30,29 @@ declare global {
 }
 
 let hooks: WorkspaceUIHooks | null = null;
+const listeners = new Set<() => void>();
 
 // Self-installing: module scope runs on first import (files store pattern).
 window.__ccguiWorkspaceUI = {
   registerHooks(h) {
     hooks = h;
+    // 插件 activate / 热重载换 hooks:通知订阅方重算(此前读模块级变量
+    // 的调用方会永远停在旧值,徽标/引擎允许表间歇性不生效)。
+    for (const listener of listeners) listener();
   },
 };
+
+function subscribeHooks(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/** 当前注册的插件 hooks(响应式):registerHooks 替换后触发重渲染。 */
+export function useWorkspaceUIHooks(): WorkspaceUIHooks | null {
+  return useSyncExternalStore(subscribeHooks, () => hooks);
+}
 
 /** Plugin-registered engine allow-list for a workspace; null = no filter. */
 export function workspaceAllowedEngines(

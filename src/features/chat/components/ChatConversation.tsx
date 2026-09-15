@@ -32,7 +32,7 @@ import type { EngineInfo, Workspace } from "@/lib/ipc";
 import type { OmpServiceTier } from "@/lib/omp-service-tier";
 import { EmptyState } from "@/components/base/empty-state";
 import { ASSUMED_CONTEXT_WINDOW, parseUsage } from "../usage";
-import { workspaceAllowedEngines } from "../workspace-ui-bridge";
+import { useWorkspaceUIHooks, workspaceAllowedEngines } from "../workspace-ui-bridge";
 
 const EMPTY_QUEUE: QueuedMessage[] = [];
 
@@ -356,7 +356,12 @@ export const ChatConversation = memo(function ChatConversation({
   });
   // 插件桥给出该工作区的引擎允许表(meta 形状留在插件侧,宿主不解释);
   // null = 非接管工作区,按本机探针展示。
-  const allowedEngines = workspaceAllowedEngines(active?.workspacePath);
+  const uiHooks = useWorkspaceUIHooks();
+  const allowedEngines = useMemo(
+    // uiHooks 进依赖:插件 activate/热重载换 hooks 后允许表及时重算。
+    () => workspaceAllowedEngines(active?.workspacePath),
+    [uiHooks, active?.workspacePath],
+  );
   const { addMenu, cliMenu, permissionMenu, noEnabledEngines } =
     useConversationMenus({
       engines,

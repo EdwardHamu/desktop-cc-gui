@@ -1,4 +1,4 @@
-import type { Disposer } from "@ccgui/plugin-sdk";
+import type { Disposer, ExternalSessionRow } from "@ccgui/plugin-sdk";
 import type { SessionMeta } from "@/lib/ipc";
 
 /**
@@ -10,18 +10,12 @@ import type { SessionMeta } from "@/lib/ipc";
  * 表(本模块不 import store,无环)。
  */
 
-/** 插件上报的外部会话行:只给宿主侧栏需要的字段,其余按缺省补全。 */
-export interface ExternalSessionRow {
-  engine: string;
-  sessionId: string;
-  /** 必须是已登记工作区的 path,否则合并时被丢弃(侧栏按 workspacePath 分组)。 */
-  workspacePath: string;
-  title?: string;
-  updatedAt?: number | null;
-  /** 远端 jsonl 绝对路径(可选;宿主历史回放经远程通道拉取)。 */
-  remotePath?: string;
-}
+/** 插件上报行类型以 SDK 契约为准(单一事实源);宿主只消费这些字段。 */
+export type { ExternalSessionRow };
 type SourceList = () => Promise<ExternalSessionRow[]>;
+
+/** 单源单次返回的行数上限;超限截断,防失控插件把侧栏刷爆。 */
+const MAX_ROWS_PER_SOURCE = 500;
 
 /** pluginId/sourceId → list。同 id 重复登记覆盖(插件热重载语义)。 */
 const sources = new Map<string, SourceList>();
@@ -75,27 +69,41 @@ const EMPTY_META = {
 /** 收集所有源的行并补全成 SessionMeta。任一源抛错只丢该源,不上抛。 */
 export async function listExternalSessionMetas(): Promise<SessionMeta[]> {
   if (sources.size === 0) return [];
+  // Promise.resolve().then 把同步抛错也变成 rejection,allSettled 才能
+  // 兑现『任一源抛错只丢该源』——否则一个同步抛错的源会让整轮刷新失败。
   const settled = await Promise.allSettled(
-    [...sources.values()].map((list) => list()),
+    [...sources.values()].map((list) => Promise.resolve().then(list)),
   );
   const out: SessionMeta[] = [];
   const seen = new Set<string>();
   for (const r of settled) {
     if (r.status !== "fulfilled" || !Array.isArray(r.value)) continue;
-    for (const row of r.value) {
+    const rows =
+      r.value.length > MAX_ROWS_PER_SOURCE
+        ? (console.error(
+            `[plugins] session source returned ${r.value.length} rows; truncated to ${MAX_ROWS_PER_SOURCE}`,
+          ),
+          r.value.slice(0, MAX_ROWS_PER_SOURCE))
+        : r.value;
+    for (const row of rows) {
       if (!row?.engine || !row?.sessionId || !row?.workspacePath) continue;
       const key = `${row.engine}/${row.sessionId}/${row.workspacePath}`;
       if (seen.has(key)) continue;
       seen.add(key);
+      // 插件输入的字段类型防御:不合规字段回落缺省,不透传进 SessionMeta。
+      const updatedAt = typeof row.updatedAt === "number" ? row.updatedAt : null;
+      const title = typeof row.title === "string" && row.title ? row.title : row.sessionId.slice(0, 8);
+      const remotePath =
+        typeof row.remotePath === "string" && row.remotePath ? row.remotePath : undefined;
       out.push({
         engine: row.engine,
         sessionId: row.sessionId,
         workspacePath: row.workspacePath,
         ...EMPTY_META,
-        fileMtimeMs: row.updatedAt ?? 0,
-        title: row.title || row.sessionId.slice(0, 8),
-        updatedAt: row.updatedAt ?? null,
-        remotePath: row.remotePath || undefined,
+        fileMtimeMs: updatedAt ?? 0,
+        title,
+        updatedAt,
+        remotePath,
       });
     }
   }

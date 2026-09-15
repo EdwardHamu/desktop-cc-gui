@@ -289,7 +289,7 @@ function RepoHeaderRow({
           {repo.label}
         </span>
         {repo.labelSuffix && (
-          <span className="ws-label-badge ml-1.5 shrink-0" aria-label={repo.labelSuffix}>
+          <span className="ws-label-badge ml-1.5 shrink-0">
             {repo.labelSuffix}
           </span>
         )}

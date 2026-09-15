@@ -292,17 +292,35 @@ export function createPluginContext(
     workspaces: {
       add(path, meta) {
         requirePermission("host:workspace");
-        return addPluginWorkspace(id, path, meta);
+        // meta 带 wsl 键 = 远程工作区(会话流量经 ssh 导向插件指定主机),
+        // 需要独立的 host:workspace:remote 授权;判定在 workspace-bridge。
+        return addPluginWorkspace(id, path, meta, () =>
+          requirePermission("host:workspace:remote"),
+        );
       },
     },
     sessions: {
       selectSession(engine, sessionId, workspacePath) {
         requirePermission("host:session");
-        openPluginSession(id, engine, sessionId, workspacePath);
-        return Promise.resolve();
+        // 契约返回 Promise:校验失败走 rejection 而不是同步抛,与
+        // workspaces.add 一致(插件可用 .catch 链式处理)。
+        return Promise.resolve().then(() =>
+          openPluginSession(id, engine, sessionId, workspacePath),
+        );
       },
       registerSource(def) {
         requirePermission("host:session");
+        // 入口校验:不合规 def 同步抛回插件(登记期 bug 应当即暴露),
+        // 否则非函数 list 会在每次会话刷新时才炸,且连累其他源。
+        if (
+          typeof def?.id !== "string" ||
+          !def.id ||
+          typeof def.list !== "function"
+        ) {
+          throw new Error(
+            `[plugins] "${id}" sessions.registerSource: def must be { id: non-empty string, list: () => Promise<ExternalSessionRow[]> }`,
+          );
+        }
         return track(
           registerSessionSource(id, def.id, () => runAsPlugin(def.list)),
         );

@@ -390,6 +390,33 @@ pub async fn load_session_page(
     .map_err(|e| e.to_string())?
 }
 
+/// 远程会话路径形状白名单。本地等价物 session_file_path 只认 db 登记的
+/// 引擎 home 内文件;远程会话没有 db 行(remotePath 由插件会话源上报),
+/// 用「绝对 .jsonl + 落在该引擎已知会话目录形态」收口,挡住借 IPC 读
+/// 发行版内任意 .jsonl 文件。
+fn is_plausible_remote_session_path(engine: &str, path: &str) -> bool {
+    if !path.ends_with(".jsonl") || !path.starts_with('/') {
+        return false;
+    }
+    // 拒绝 `..` 段与 NUL:防止借拼路径逃出会话树。
+    if path.contains('\0') || path.split('/').any(|seg| seg == "..") {
+        return false;
+    }
+    let markers: &[&str] = match engine {
+        // ~/.claude/projects/<encoded>/<sid>.jsonl;qoder 同构(.qoder*/projects)
+        "claude" | "qoder" => &["/projects/"],
+        // codex ~/.codex/sessions/…;kimi/grok/dsh 同样以 sessions 目录为根
+        "codex" | "kimi" | "grok" | "dsh" | "agy" => &["/sessions/", "/session/"],
+        // pi 家族:~/.{pi,omp}/agent/sessions/…
+        "pi" | "omp" => &["/agent/sessions/"],
+        _ => &["/sessions/", "/session/", "/projects/"],
+    };
+    markers.iter().any(|m| path.contains(m))
+}
+
+/// 远程转录本拉取上限(base64 前)。
+const MAX_REMOTE_SESSION_BYTES: u64 = 64 * 1024 * 1024;
+
 /// 远程工作区会话的历史回放:插件会话源把远端 jsonl 绝对路径随 `remotePath`
 /// 上报;这里经引擎 spawn 同一套远程通道 `base64` 拉回转录本,落到本机缓存
 /// 文件后复用既有解析/分页/子代理折叠。缓存文件仅在内容有变化时重写(stat
@@ -405,14 +432,18 @@ pub async fn load_remote_session_page(
     before_seq: Option<i64>,
 ) -> Result<SessionPage, String> {
     use sha2::Digest as _;
-    if !remote_path.ends_with(".jsonl") || !remote_path.starts_with('/') {
+    if !is_plausible_remote_session_path(&engine, &remote_path) {
         return Err(format!("远程会话路径不合法: {remote_path}"));
     }
     let transport = crate::engine::wsl_transport::transport_for_workspace(&state.db, &workspace_path)
         .ok_or_else(|| format!("工作区 {workspace_path} 未登记远程传输"))?;
+    // 先远端 stat 卡住字节上限再 base64,超限/不可读直接非零退出,
+    // 避免超大转录本经 1.33× 膨胀后全量进内存。
+    let quoted = crate::engine::wsl_transport::sh_quote(&remote_path);
     let script = format!(
-        "base64 -w0 {}",
-        crate::engine::wsl_transport::sh_quote(&remote_path)
+        "sz=$(stat -c %s -- {quoted} 2>/dev/null) || {{ echo '远程会话文件不可读' >&2; exit 3; }}; \
+         [ \"$sz\" -le {MAX_REMOTE_SESSION_BYTES} ] || {{ echo \"远程会话文件过大(${{sz}}B,上限 {MAX_REMOTE_SESSION_BYTES}B)\" >&2; exit 4; }}; \
+         base64 -w0 -- {quoted}"
     );
     // run_script_output 已剥传输层噪声;载荷是单行 base64。
     let raw = crate::engine::wsl_transport::run_script_output(&transport, &script).await?;
@@ -710,7 +741,12 @@ pub fn add_workspace(
         .file_name()
         .and_then(|n| n.to_str())
         .map(str::to_string)
-        .unwrap_or_else(|| trimmed.trim_end_matches(['/', '\\']).to_string());
+        // "/" 这类纯分隔符路径:file_name 为 None 且 trim 后为空 → 原串兜底,
+        // 空名字进 db 只会换来一个无法辨认的侧栏条目。
+        .unwrap_or_else(|| match trimmed.trim_end_matches(['/', '\\']) {
+            "" => trimmed.to_string(),
+            rest => rest.to_string(),
+        });
     let id = uuid::Uuid::new_v4().to_string();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -824,6 +860,33 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn remote_session_path_shape_is_per_engine() {
+        // 合法形态:绝对 .jsonl 且落在该引擎已知会话目录下
+        assert!(is_plausible_remote_session_path(
+            "claude",
+            "/home/dev/.claude/projects/-home-dev-proj/s-1.jsonl"
+        ));
+        assert!(is_plausible_remote_session_path(
+            "codex",
+            "/home/dev/.codex/sessions/2026/09/15/rollout-abc.jsonl"
+        ));
+        assert!(is_plausible_remote_session_path(
+            "omp",
+            "/home/dev/.omp/agent/sessions/s-1.jsonl"
+        ));
+        // 形状不符:相对路径、非 jsonl、`..` 段、目录形态不匹配
+        assert!(!is_plausible_remote_session_path("claude", "home/dev/x.jsonl"));
+        assert!(!is_plausible_remote_session_path("claude", "/home/dev/.claude/projects/p/s.txt"));
+        assert!(!is_plausible_remote_session_path(
+            "claude",
+            "/home/dev/.claude/projects/../settings.jsonl"
+        ));
+        // 任意 .jsonl(不在会话目录形态下)一律拒绝 —— 防借 IPC 读发行版文件
+        assert!(!is_plausible_remote_session_path("claude", "/etc/cron.d/job.jsonl"));
+        assert!(!is_plausible_remote_session_path("codex", "/home/dev/.claude/projects/p/s.jsonl"));
     }
 
     #[test]

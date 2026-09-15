@@ -78,8 +78,9 @@ function FileEditor({ path, content }: { path: string; content: FileContent }) {
 
   const name = fileName(path);
   const isMarkdown = MARKDOWN_RE.test(name);
-  // Truncated files are partial: editing + saving would clobber the tail.
-  const readOnly = content.truncated;
+  // Truncated files are partial (editing + saving would clobber the tail);
+  // remote-readOnly files are complete but unwritable — both stay read-only.
+  const readOnly = content.truncated || content.readOnly === true;
   const dirty = !readOnly && draft !== savedText;
 
   // Publish dirty state so the tab strip can dot the tab and confirm closes.

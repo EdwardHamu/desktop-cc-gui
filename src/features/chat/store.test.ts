@@ -233,6 +233,22 @@ describe("compactContext and refreshSessionUsage", () => {
     expect(ipc.loadSessionPage).not.toHaveBeenCalledWith("codex", "remote-1", 100);
   });
 
+  it("pinModels(updates, false) 只更新内存 models,不触碰 persisted 默认", async () => {
+    vi.mocked(ipc.updateAppSettings).mockClear();
+    await useChatStore.getState().pinModels({ omp: "remote-only-model" }, false);
+    expect(useChatStore.getState().models.omp).toBe("remote-only-model");
+    expect(ipc.updateAppSettings).not.toHaveBeenCalled();
+  });
+
+  it("pinModels 默认 persist:写 settings.defaultModels", async () => {
+    vi.mocked(ipc.updateAppSettings).mockClear();
+    await useChatStore.getState().pinModels({ omp: "m1" });
+    expect(useChatStore.getState().models.omp).toBe("m1");
+    expect(ipc.updateAppSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ defaultModels: expect.objectContaining({ omp: "m1" }) }),
+    );
+  });
+
   it("compactContext sends /compact and invokes refreshSessionUsage after compaction finishes", async () => {
     const tab = { engine: "claude", sessionId: "sess-compact", workspacePath: WS };
     const key = "claude/sess-compact";

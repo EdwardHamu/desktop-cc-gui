@@ -1585,23 +1585,48 @@ pub async fn send_message_inner(
         state.db.granted_roots().unwrap_or_default(),
     )?;
 
-    // Host-stream engines drive their own transport: no child process — the
-    // registry entry only routes interrupts to the transport task.
-    if launch.engine_impl.drives_own_transport() {
-        return send_host_stream(state, launch, engine).await;
-    }
     // WSL 远程工作区:引擎进程经 ssh 在发行版内执行(见 wsl_transport)。
     let wsl_tp = wsl_transport::transport_for_workspace(&state.db, &workspace_path);
+    // Host-stream engines drive their own transport: no child process — the
+    // registry entry only routes interrupts to the transport task. 远程
+    // 工作区下没有可包装的子进程,本机 host 又对远端路径无意义,显式拒绝。
+    if launch.engine_impl.drives_own_transport() {
+        if wsl_tp.is_some() {
+            return Err(format!("引擎 {engine} 不支持远程工作区(WSL)"));
+        }
+        return send_host_stream(state, launch, engine).await;
+    }
     let (mut command, extra_cleanup, skip_local_cwd) = match &wsl_tp {
         Some(tp) => {
-            let wrapped = wsl_transport::wrap(launch.built.command, tp).await?;
-            (wrapped.command, wrapped.cleanup_files, wrapped.skip_local_cwd)
+            // 依赖本机 staging 文件的引擎(grok 等 cleanup_files 非空):
+            // 远端 CLI 读不到本机文件,直接拒绝而非跑出莫名其妙的失败;
+            // 已写盘的 staging 文件顺手清掉,不 strand。
+            if !launch.built.cleanup_files.is_empty() {
+                for path in &launch.built.cleanup_files {
+                    let _ = std::fs::remove_file(path);
+                }
+                return Err(format!(
+                    "引擎 {engine} 不支持远程工作区(WSL):依赖本机临时文件"
+                ));
+            }
+            match wsl_transport::wrap(launch.built.command, tp).await {
+                Ok(wrapped) => (wrapped.command, wrapped.cleanup_files, wrapped.skip_local_cwd),
+                Err(error) => {
+                    // wrap 失败(ssh 上传失败等)同样不许 strand staging 文件。
+                    for path in &launch.built.cleanup_files {
+                        let _ = std::fs::remove_file(path);
+                    }
+                    return Err(error);
+                }
+            }
         }
         None => (launch.built.command, Vec::new(), false),
     };
     let mut cleanup_files = launch.built.cleanup_files;
     cleanup_files.extend(extra_cleanup);
-    if engine == "codex" {
+    // 本地 env 不跨 ssh:WSL 分支的 command 是本地 ssh 进程,apply 无意义
+    // (还白跑一次登录 shell 解析);远端 codex 用发行版自己的配置。
+    if engine == "codex" && wsl_tp.is_none() {
         codex_provider_env::apply(&mut command).await;
     }
     command

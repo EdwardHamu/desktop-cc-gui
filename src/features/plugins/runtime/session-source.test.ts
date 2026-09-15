@@ -50,4 +50,37 @@ describe("session source registry", () => {
     d1();
     d2();
   });
+  it("a synchronously throwing source is isolated (not just rejected promises)", async () => {
+    // 非 async 的 list 同步抛错不得连累其他源或让整轮刷新失败。
+    const d1 = registerSessionSource("bad", "sync", () => {
+      throw new Error("not even a promise");
+    });
+    const d2 = registerSessionSource("wsl", "ok", async () => [row("s-1")]);
+    const metas = await listExternalSessionMetas();
+    expect(metas.map((m) => m.sessionId)).toEqual(["s-1"]);
+    d1();
+    d2();
+  });
+
+  it("coerces malformed field types instead of passing them through", async () => {
+    const d = registerSessionSource("wsl", "bad-types", async () => [
+      {
+        engine: "codex",
+        sessionId: "s-9",
+        workspacePath: "~/cxn",
+        title: { not: "a string" },
+        updatedAt: "yesterday",
+        remotePath: 42,
+      } as unknown as ExternalSessionRow,
+    ]);
+    const metas = await listExternalSessionMetas();
+    expect(metas[0]).toMatchObject({
+      sessionId: "s-9",
+      title: "s-9", // sessionId.slice(0, 8) 回落
+      updatedAt: null,
+      fileMtimeMs: 0,
+      remotePath: undefined,
+    });
+    d();
+  });
 });

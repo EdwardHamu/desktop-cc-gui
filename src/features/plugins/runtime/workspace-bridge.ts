@@ -9,15 +9,25 @@ import { useChatStore } from "@/features/chat/store";
  *
  * 与侧栏「添加工作区」的差异：不要求本机存在该目录（远程机/WSL 发行版
  * 内路径），meta 存在时由后端放行 is_dir 校验并随行存储。
+ *
+ * meta 含 `wsl` 键 = 远程工作区：引擎随后按 meta.wsl 经 ssh 把会话流量
+ * 导到插件指定的主机（见 src-tauri wsl_transport）。这等效于出网 + 远程
+ * 执行导向，远超「登记一行侧栏数据」，故需要独立的
+ * `host:workspace:remote` 权限（requireRemotePermission 由 context.ts
+ * 注入），不接受只有 host:workspace 的插件设置。
  */
 export async function addPluginWorkspace(
   pluginId: string,
   path: string,
-  meta?: Record<string, unknown>,
+  meta: Record<string, unknown> | undefined,
+  requireRemotePermission: () => void,
 ): Promise<void> {
   const trimmed = path.trim();
   if (!trimmed) {
     throw new Error(`[plugins] "${pluginId}" workspaces.add: empty path`);
+  }
+  if (meta !== null && meta !== undefined && typeof meta === "object" && "wsl" in meta) {
+    requireRemotePermission();
   }
   // 直连 ipc 而非 store action:store 把失败写进 actionError 静默返回,
   // 插件需要真实的成功/失败信号来决定 UI(标记已登记 / 报错)。

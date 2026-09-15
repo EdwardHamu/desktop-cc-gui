@@ -85,18 +85,13 @@ export function useEngineModels(
     [wsKey, workspacePath],
   );
   useEffect(() => {
+    // pending 也要拦:catalogs 空槽位时每 render 都是新引用,没有 pending
+    // 守卫会在首个探针落地前对同一引擎反复发 IPC(同步 effect 循环下
+    // 直接失控)。
     engines
-      .filter((engine) => !(engine.id in catalogs))
+      .filter((engine) => !(engine.id in catalogs) && !pending[engine.id])
       .forEach((engine) => probeCatalog(engine.id));
-  }, [
-    engines,
-    catalogs,
-    probeCatalog,
-    wsKey,
-    workspacePath,
-    setCatalogsByWs,
-    setPendingByWs,
-  ]);
+  }, [engines, catalogs, pending, probeCatalog]);
 
   // Per-engine model lists for the CLI menu flyouts: the backend catalog
   // plus, for channel-driven engines, the current provider channel's
@@ -189,15 +184,20 @@ export function useEngineModels(
   // from older, broader catalogs) that the CLI's model flag cannot resolve.
   // All engines' pins are computed first and written in ONE store action:
   useEffect(() => {
-    const persisted: Record<string, string> = {};
-    const volatile: Record<string, string> = {};
+    const updates: Record<string, string> = {};
     for (const engine of engines) {
+      // Remote catalogs (WSL 发行版) are display-only: `models` is a single
+      // global record, so a pin from a distro catalog would (a) put a
+      // distro-only id into every local tab's picker and (b) on returning
+      // to a local workspace, trip the authoritative-catalog reset below
+      // and persist that id over the user's saved default. 远端 catalog
+      // 永不触发 pin;用户在远端的模型选择走引擎端 resume,不落地。
+      if (catalogs[engine.id]?.remote === true) continue;
       const first = modelsByEngine[engine.id]?.[0];
       if (!first) continue;
       const stored = models[engine.id]?.trim();
-      const remote = catalogs[engine.id]?.remote === true;
       if (!stored) {
-        (remote ? volatile : persisted)[engine.id] = first.id;
+        updates[engine.id] = first.id;
         continue;
       }
       const catalog = catalogs[engine.id];
@@ -206,14 +206,10 @@ export function useEngineModels(
         catalog.models.length > 0 &&
         !knownIdsByEngine[engine.id]?.has(stored)
       ) {
-        // Remote-catalog resets stay session-scoped: `models` is a single
-        // global record, and a distro catalog must not rewrite the
-        // persisted default the local workspaces rely on (and vice versa).
-        (remote ? volatile : persisted)[engine.id] = first.id;
+        updates[engine.id] = first.id;
       }
     }
-    if (Object.keys(persisted).length > 0) void pinModels(persisted, true);
-    if (Object.keys(volatile).length > 0) void pinModels(volatile, false);
+    if (Object.keys(updates).length > 0) void pinModels(updates);
   }, [engines, models, modelsByEngine, catalogs, wsKey, knownIdsByEngine, pinModels]);
   // Manual refresh from the flyout: re-read provider configs and re-probe
   // every engine's catalog (the mount effect skips engines already probed,
