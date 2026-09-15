@@ -6,6 +6,7 @@ import Github from "lucide-react/dist/esm/icons/github";
 import Loader2 from "lucide-react/dist/esm/icons/loader-2";
 import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw";
 import SquareArrowOutUpRight from "lucide-react/dist/esm/icons/square-arrow-out-up-right";
+import X from "lucide-react/dist/esm/icons/x";
 import {
   SettingsCard,
   SettingsSectionLabel,
@@ -57,9 +58,19 @@ function DevelopGuideDialog({ onClose }: { onClose: () => void }) {
       className="flex max-h-[calc(100dvh-64px)] w-[560px] max-w-[calc(100vw-32px)] flex-col"
       dialogClassName="flex flex-col gap-4 overflow-y-auto"
     >
-      <span className="text-body-medium font-medium text-text-primary">
-        {t("plugins.market.developTitle")}
-      </span>
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-body-medium font-medium text-text-primary">
+          {t("plugins.market.developTitle")}
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label={t("common.close")}
+          className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-lg text-foreground-icon-secondary transition-colors hover:bg-background-secondary-hover hover:text-foreground-icon-primary"
+        >
+          <X className="size-4" aria-hidden />
+        </button>
+      </div>
       <div className="flex flex-col gap-1.5">
         <span className="text-body-medium text-text-primary">
           {t("plugins.market.localTitle")}
