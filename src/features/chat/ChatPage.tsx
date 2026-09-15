@@ -164,6 +164,7 @@ export default function ChatPage() {
     handleAddWorkspace,
     handleThreadSelect,
     handleThreadAction,
+    handleCopyThreadId,
     handleRemoveWorkspace,
     handleWorkspaceAlias,
     handleSetWorkspaceArchived,
@@ -249,6 +250,7 @@ export default function ChatPage() {
         sections={sections}
         onThreadSelect={handleThreadSelect}
         onThreadAction={handleThreadAction}
+        onCopyThreadId={handleCopyThreadId}
         onAddWorkspace={handleAddWorkspace}
         onRemoveWorkspace={handleRemoveWorkspace}
         onWorkspaceAlias={handleWorkspaceAlias}

@@ -87,6 +87,7 @@ export const en: Messages = {
     unpin: "Unpin",
     deleteSession: "Delete session",
     renameSession: "Rename session",
+    copySessionId: "Copy ID",
     loadEarlier: "Load earlier messages",
     grantTitle: "Directory access required",
     grantScopeNote:

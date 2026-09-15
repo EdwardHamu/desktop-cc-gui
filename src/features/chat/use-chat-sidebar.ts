@@ -179,6 +179,16 @@ export function useChatSidebar({
     },
     [sessionById, pinSession, setDialog],
   );
+  // 右键菜单「复制 ID」:写入原生会话 uuid(CLI --resume 可用的那个),与
+  // 文件树「复制路径」一致——静默写剪贴板,失败不打扰。
+  const handleCopyThreadId = useCallback(
+    (id: string) => {
+      const session = sessionById.get(id);
+      if (!session) return;
+      void navigator.clipboard.writeText(session.sessionId).catch(() => {});
+    },
+    [sessionById],
+  );
   const handleRemoveWorkspace = useCallback(
     (workspaceId: string) => {
       setDialog({ kind: "removeWorkspace", workspaceId });
@@ -241,6 +251,7 @@ export function useChatSidebar({
     handleAddWorkspace,
     handleThreadSelect,
     handleThreadAction,
+    handleCopyThreadId,
     handleRemoveWorkspace,
     handleWorkspaceAlias,
     handleSetWorkspaceArchived,

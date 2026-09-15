@@ -83,6 +83,7 @@ export const zh = {
     unpin: "取消置顶",
     deleteSession: "删除会话",
     renameSession: "重命名会话",
+    copySessionId: "复制 ID",
     loadEarlier: "加载更早的消息",
     grantTitle: "需要目录访问权限",
     grantScopeNote: "将授权目录：{{dir}}（保存后长期生效，可在设置中撤销）",
