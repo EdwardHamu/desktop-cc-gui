@@ -277,8 +277,6 @@ export const en: Messages = {
     updateRestarting: "Restarting…",
     updateError: "Update failed: {{message}}",
     updateDismiss: "Dismiss",
-    openSourceBanner:
-      "This project is 100% open source and free (beware of pirated copies)",
     openSourceBannerStar: "Star us",
     openSourceBannerStarAria: "Star the project on GitHub",
     socialGithub: "GitHub repository — star us!",

@@ -263,7 +263,6 @@ export const zh = {
     updateRestarting: "正在重启…",
     updateError: "更新失败：{{message}}",
     updateDismiss: "关闭",
-    openSourceBanner: "本项目保证 100% 开源和免费（谨防盗版项目）",
     openSourceBannerStar: "点个 Star",
     openSourceBannerStarAria: "前往 GitHub 点 Star",
     socialGithub: "GitHub 开源仓库，欢迎 Star",

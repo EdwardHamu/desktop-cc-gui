@@ -38,6 +38,12 @@ collapse: a user message taller than 480px clamps to 320px behind a bottom
 fade into the bubble fill with a centered chevron, the chevron toggles
 expand/collapse, and a short message is never clamped. No model or session.
 
+Open `/tests/browser/changelog-dialog.html` to check the version-history
+dialog layout (Settings → About → 版本记录): the release-notes body must
+scroll (ModalShell's inner Dialog passes the flex height through), the footer
+pager stays inside the modal, the header carries the Star button instead of
+the old banner strip, and paging reaches the oldest entry. No app or backend.
+
 Open `/tests/browser/file-search-overlay.html` to check the file panel's
 workspace search (tree right-click → 搜索文件) inside the panel's own 280px
 column: the scope buttons stand in for the right-clicked folder, and the store
