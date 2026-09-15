@@ -719,6 +719,28 @@ pub fn add_workspace(
     path: String,
     meta: Option<serde_json::Value>,
 ) -> Result<Workspace, String> {
+    // `wsl` meta steers engine traffic over ssh to a plugin-named host (出站
+    // + 远程执行导向) — it must come through plugin_caps::plugin_add_workspace
+    // where the manifest grant is checked server-side. This general command
+    // serves trusted host UI only (a plugin bypassing the JS gate via direct
+    // IPC would otherwise set it here).
+    if let Some(m) = &meta {
+        if m.as_object().is_some_and(|o| o.contains_key("wsl")) {
+            return Err(
+                "wsl meta requires plugin_add_workspace (host:workspace:remote grant)".to_string(),
+            );
+        }
+    }
+    add_workspace_inner(&state, &path, meta)
+}
+
+/// Shared body of `add_workspace` / `plugin_caps::plugin_add_workspace`:
+/// shape checks + upsert. Grant checks live in the callers.
+pub(crate) fn add_workspace_inner(
+    state: &crate::AppState,
+    path: &str,
+    meta: Option<serde_json::Value>,
+) -> Result<Workspace, String> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
         return Err("empty path".to_string());

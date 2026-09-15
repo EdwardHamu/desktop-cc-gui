@@ -29,9 +29,10 @@ export async function addPluginWorkspace(
   if (meta !== null && meta !== undefined && typeof meta === "object" && "wsl" in meta) {
     requireRemotePermission();
   }
-  // 直连 ipc 而非 store action:store 把失败写进 actionError 静默返回,
-  // 插件需要真实的成功/失败信号来决定 UI(标记已登记 / 报错)。
-  await ipc.addWorkspace(trimmed, meta);
+  // 走 plugin_add_workspace(Rust 侧复核 manifest 授权,见 plugin_caps.rs)
+  // 而非通用 add_workspace——后者拒绝 wsl meta,直连 IPC 绕过 JS 门的插件
+  // 会在服务端被拦。错误经 invoke 真实传播,不走 store actionError 静默路径。
+  await ipc.pluginAddWorkspace(pluginId, trimmed, meta);
   await useChatStore.getState().refreshWorkspaces();
 }
 

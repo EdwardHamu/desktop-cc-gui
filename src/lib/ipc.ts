@@ -711,6 +711,12 @@ export const ipc = {
   listWorkspaces: () => invoke<Workspace[]>("list_workspaces"),
   addWorkspace: (path: string, meta?: Record<string, unknown>) =>
     invoke<Workspace>("add_workspace", { path, meta: meta ?? null }),
+  /** Plugin-scoped workspace registration: the Rust side re-checks the
+   *  plugin's manifest grants (host:workspace; meta.wsl additionally needs
+   *  host:workspace:remote) — the server-side counterpart of the JS gate in
+   *  plugins/runtime/context.ts. pluginId is injected by the host bridge. */
+  pluginAddWorkspace: (pluginId: string, path: string, meta?: Record<string, unknown>) =>
+    invoke<Workspace>("plugin_add_workspace", { pluginId, path, meta: meta ?? null }),
   reorderWorkspaces: (ids: string[]) => invoke<void>("reorder_workspaces", { ids }),
   removeWorkspace: (id: string) => invoke<void>("remove_workspace", { id }),
   setWorkspaceGroup: (id: string, groupId: string | null) =>

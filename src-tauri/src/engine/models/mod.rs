@@ -181,6 +181,8 @@ pub async fn list_engine_models(
         _ => Ok(EngineCatalog::authoritative(Vec::new())),
     }
 }
+
+/// DSH has no CLI-side catalog: the model list lives on the running host
 /// (`session/modelCatalog` RPC — 0.1.2 removed `llm.models`), grouped by
 /// provider with `default` carrying the host's current model. Never spawns
 /// the host — a down host is an error so the frontend keeps whatever catalog
@@ -416,7 +418,6 @@ pub(super) fn config_toml_model(
         context_window: None,
     })
 }
-
 
 /// Which entry keys feed each EngineModel field — the alias-table skeleton
 /// is shared by grok and kimi, only these key names differ.

@@ -21,8 +21,16 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::time::Duration;
 
 use tokio::process::Command;
+
+/// 远程短调用(脚本上传/模型目录/历史回放拉取)的全局 deadline。
+/// ssh_options 的 ConnectTimeout 只覆盖 TCP 建连;远端建连后挂起(wsl.exe
+/// 无响应/管道写满)没有它会让 tauri 命令 future 永不 resolve,前端无
+/// 取消路径,发送/模型选择/历史翻页全部卡死到 app 重启。引擎会话本体
+/// (wrap 出的长驻 run 命令)不在此列——它的存活期就是 turn 的存活期。
+const REMOTE_CALL_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// `meta.wsl` 的形状(插件 ccgui-plugin-wsl 写入;其他插件可同构复用)。
 #[derive(Debug, Clone)]
@@ -306,19 +314,29 @@ async fn upload_script(
     let mut child = command
         .spawn()
         .map_err(|e| format!("ssh 脚本上传失败: {e}"))?;
-    if let Some(mut stdin) = child.stdin.take() {
+    let wrote = if let Some(mut stdin) = child.stdin.take() {
         use tokio::io::AsyncWriteExt;
-        stdin
-            .write_all(script_body.as_bytes())
-            .await
-            .map_err(|e| format!("ssh 脚本写入失败: {e}"))?;
+        let result = stdin.write_all(script_body.as_bytes()).await;
         stdin.shutdown().await.ok();
         drop(stdin);
-    }
-    let status = child
-        .wait()
-        .await
-        .map_err(|e| format!("ssh 脚本上传等待失败: {e}"))?;
+        result
+    } else {
+        Ok(())
+    };
+    wrote.map_err(|e| format!("ssh 脚本写入失败: {e}"))?;
+    // 全局 deadline:远端挂起时管道写满会让 wait 与 write 互等,没有超时
+    // 这个 future 永不 resolve(调用链上UI 无取消路径)。超时即 kill,
+    // 不留半写的远端脚本与孤儿 ssh。
+    let status = match tokio::time::timeout(REMOTE_CALL_TIMEOUT, child.wait()).await {
+        Ok(result) => result.map_err(|e| format!("ssh 脚本上传等待失败: {e}"))?,
+        Err(_) => {
+            let _ = child.start_kill();
+            return Err(format!(
+                "wsl 脚本上传超时({}s,检查远程主机 wsl.exe 是否无响应)",
+                REMOTE_CALL_TIMEOUT.as_secs()
+            ));
+        }
+    };
     if !status.success() {
         return Err("wsl 脚本上传失败(检查远程主机连接/认证;ControlMaster 可能已过期,请在 WSL 主机设置重新连接)".to_string());
     }
@@ -394,10 +412,19 @@ pub async fn run_script_output(
     let mut command = base_ssh_command(transport);
     command.arg(wsl_command_string(transport, &["bash", &remote_path]));
     command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    let output = command
-        .output()
-        .await
-        .map_err(|e| format!("远程命令执行失败: {e}"))?;
+    // 全局 deadline(理由见 REMOTE_CALL_TIMEOUT):模型目录/历史回放都走
+    // 这里,远端挂起不得拖死前端。kill_on_drop:超时后 output future 被
+    // 丢弃即 SIGKILL 本地 ssh(远端脚本落盘即删,无残留面)。
+    command.kill_on_drop(true);
+    let output = match tokio::time::timeout(REMOTE_CALL_TIMEOUT, command.output()).await {
+        Ok(result) => result.map_err(|e| format!("远程命令执行失败: {e}"))?,
+        Err(_) => {
+            return Err(format!(
+                "远程命令超时({}s,检查远程主机 wsl.exe 是否无响应)",
+                REMOTE_CALL_TIMEOUT.as_secs()
+            ));
+        }
+    };
     if !output.status.success() {
         return Err(format!(
             "远程命令退出码 {:?}: {}",

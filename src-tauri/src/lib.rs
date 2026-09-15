@@ -288,6 +288,7 @@ pub fn run() {
             metrics::app_metrics,
             // plugin capability egress (network:/exec: manifest grants)
             plugin_caps::plugin_http_request,
+            plugin_caps::plugin_add_workspace,
             plugin_caps::plugin_exec_run,
             plugin_caps::plugin_exec_spawn,
             plugin_caps::plugin_exec_kill,

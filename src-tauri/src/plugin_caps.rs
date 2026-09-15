@@ -447,6 +447,48 @@ pub(crate) async fn plugin_http_request(
     Ok(PluginHttpResponse { status, body })
 }
 
+/// Grant gate for `plugin_add_workspace`, pure for tests: base permission
+/// `host:workspace`; meta carrying a `wsl` key (remote execution steering)
+/// additionally requires `host:workspace:remote`.
+fn require_workspace_grants(
+    grants: &[String],
+    plugin_id: &str,
+    meta: Option<&serde_json::Value>,
+) -> Result<(), String> {
+    if !grants.iter().any(|p| p == "host:workspace") {
+        return Err(format!("{plugin_id}: missing permission host:workspace"));
+    }
+    if let Some(m) = meta {
+        if m.as_object().is_some_and(|o| o.contains_key("wsl"))
+            && !grants.iter().any(|p| p == "host:workspace:remote")
+        {
+            return Err(format!(
+                "{plugin_id}: meta.wsl requires permission host:workspace:remote"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Plugin-scoped workspace registration (SDK `ctx.workspaces.add`). Server-side
+/// counterpart of the JS permission gate in runtime/context.ts — a plugin that
+/// bypasses the webview gate (direct IPC from an async continuation, see
+/// hardening.ts) still lands here. `meta` carrying a `wsl` key steers engine
+/// traffic over ssh to a plugin-named host (出站 + 远程执行导向), so it
+/// requires the separate `host:workspace:remote` grant; the general
+/// `add_workspace` command refuses `wsl` meta outright.
+#[tauri::command]
+pub(crate) async fn plugin_add_workspace(
+    state: tauri::State<'_, crate::AppState>,
+    plugin_id: String,
+    path: String,
+    meta: Option<serde_json::Value>,
+) -> Result<crate::history::reader::Workspace, String> {
+    let grants = load_grants(&plugin_id)?;
+    require_workspace_grants(&grants, &plugin_id, meta.as_ref())?;
+    crate::history::reader::add_workspace_inner(&state, &path, meta)
+}
+
 /// Run a granted binary to completion, capturing stdout/stderr (64KB each).
 /// `timeoutMs` defaults to 30s and is capped at 300s; a timed-out process is
 /// killed (kill_on_drop) and reported as an error.
@@ -598,6 +640,24 @@ mod tests {
 
     fn spec() -> serde_json::Value {
         serde_json::from_str(PERMISSIONS_SPEC).expect("permissions spec JSON is valid")
+    }
+
+    #[test]
+    fn workspace_grants_gate() {
+        let wsl_meta =
+            serde_json::json!({"wsl": {"host": "10.0.0.2", "user": "d", "distro": "Ubuntu"}});
+        let plain_meta = serde_json::json!({"note": "x"});
+        // 无 host:workspace → 一律拒
+        assert!(require_workspace_grants(&grants(&[]), "p", None).is_err());
+        assert!(require_workspace_grants(&grants(&["host:session"]), "p", None).is_err());
+        // 有 host:workspace → 无 meta / 非 wsl meta 放行
+        let base = grants(&["host:workspace"]);
+        assert!(require_workspace_grants(&base, "p", None).is_ok());
+        assert!(require_workspace_grants(&base, "p", Some(&plain_meta)).is_ok());
+        // wsl meta 必须另有 host:workspace:remote(出站 + 远程执行导向)
+        assert!(require_workspace_grants(&base, "p", Some(&wsl_meta)).is_err());
+        let remote = grants(&["host:workspace", "host:workspace:remote"]);
+        assert!(require_workspace_grants(&remote, "p", Some(&wsl_meta)).is_ok());
     }
 
     #[test]

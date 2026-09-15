@@ -1104,6 +1104,14 @@ struct PathArgs {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct PluginAddWorkspaceArgs {
+    plugin_id: String,
+    path: String,
+    meta: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct IdsArgs {
     ids: Vec<String>,
 }
@@ -1433,6 +1441,18 @@ async fn dispatch(app: &tauri::AppHandle, cmd: &str, raw: Value) -> Result<Value
         "add_workspace" => {
             let a: PathArgs = parse_args(&raw)?;
             ser(crate::history::reader::add_workspace(app.state(), a.path, a.meta))
+        }
+        "plugin_add_workspace" => {
+            let a: PluginAddWorkspaceArgs = parse_args(&raw)?;
+            ser(
+                crate::plugin_caps::plugin_add_workspace(
+                    app.state(),
+                    a.plugin_id,
+                    a.path,
+                    a.meta,
+                )
+                .await,
+            )
         }
         "remember_session_effort" => {
             let a: RememberEffortArgs = parse_args(&raw)?;
