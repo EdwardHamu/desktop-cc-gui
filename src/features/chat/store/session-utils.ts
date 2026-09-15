@@ -56,6 +56,33 @@ export function mergeExternalSessions(
   return extra.length === 0 ? local : [...local, ...extra];
 }
 
+/**
+ * Keep locally-live sessions a refresh has not caught up to. A new session
+ * is upserted optimistically the moment its id is announced, but the scanner
+ * only lists it after the CLI flushes the file and a scan completes — a
+ * refresh landing in between (window focus, another turn's rescan, the
+ * remember-model `sessions_changed` that adopting the id itself triggers)
+ * would otherwise wipe the sidebar row until the next manual sync.
+ * Locally-live = the session has state in `bySession` (messages, streaming);
+ * `deleteSession` removes that state, so deleted rows are never resurrected.
+ * Rows the scan ingested always win over the optimistic copy.
+ */
+export function preserveUnscannedSessions(
+  refreshed: SessionMeta[],
+  current: SessionMeta[],
+  bySession: Record<string, SessionState>,
+): SessionMeta[] {
+  if (current.length === 0) return refreshed;
+  const scanned = new Set(
+    refreshed.map((s) => sessionKey(s.engine, s.sessionId, s.workspacePath)),
+  );
+  const missing = current.filter((s) => {
+    const key = sessionKey(s.engine, s.sessionId, s.workspacePath);
+    return !scanned.has(key) && bySession[key];
+  });
+  return missing.length === 0 ? refreshed : [...refreshed, ...missing];
+}
+
 /** Append committed timeline rows, assigning seq after the session's last
  * row; `patch` carries any extra per-site session changes. */
 export function appendCommittedRows(

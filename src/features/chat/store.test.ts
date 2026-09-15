@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ipc } from "@/lib/ipc";
+import { ipc, type SessionMeta } from "@/lib/ipc";
 import { useChatStore } from "./store";
 import { OPEN_TABS_KEY } from "./store/persistence";
 import { EMPTY_SESSION } from "./store/stream";
@@ -10,6 +10,7 @@ vi.mock("@/lib/ipc", () => ({
     interruptSession: vi.fn(async () => true),
     rememberSessionModel: vi.fn(async () => {}),
     rememberSessionEffort: vi.fn(async () => {}),
+    listSessions: vi.fn(async () => []),
     loadSessionPage: vi.fn(async () => ({ messages: [], nextBefore: null, subagentHistory: [] })),
     loadRemoteSessionPage: vi.fn(async () => ({ messages: [], nextBefore: null, subagentHistory: [] })),
     getAppSettings: vi.fn(async () => ({})),
@@ -462,5 +463,75 @@ describe("model selection is per session", () => {
     expect(vi.mocked(ipc.sendMessage)).toHaveBeenCalledWith(
       expect.objectContaining({ effort: "low" }),
     );
+  });
+});
+
+describe("refreshSessions and the not-yet-scanned session", () => {
+  beforeEach(() => {
+    resetStore();
+    useChatStore.setState({ sessions: [], engines: [], workspaces: [] });
+    vi.mocked(ipc.listSessions).mockResolvedValue([]);
+  });
+
+  const meta = (sessionId: string, title = "新会话"): SessionMeta => ({
+    engine: "omp",
+    sessionId,
+    workspacePath: WS,
+    filePath: "",
+    fileSize: 0,
+    fileMtimeMs: 0,
+    title,
+    preview: "",
+    createdAt: 1,
+    updatedAt: 2,
+    messageCount: 1,
+    pinned: false,
+    customTitle: null,
+  });
+
+  it("keeps the new chat's row when a refresh lands before the scanner ingests its file", async () => {
+    // The reported bug: the engine announces the session id and the sidebar
+    // row is upserted optimistically, but adopting the id also files the
+    // model (remember_session_model → sessions_changed) and the refresh it
+    // triggers replaced the list with a scan that has not seen the new file
+    // yet — the row vanished until a manual sync.
+    useChatStore.setState({
+      sessions: [meta("s-new")],
+      bySession: { "omp/s-new": { ...EMPTY_SESSION, streaming: true } },
+    });
+
+    await useChatStore.getState().refreshSessions();
+
+    expect(
+      useChatStore.getState().sessions.map((s) => s.sessionId),
+    ).toContain("s-new");
+  });
+
+  it("still drops rows with no local state (external delete cleanup)", async () => {
+    useChatStore.setState({ sessions: [meta("s-gone")] });
+
+    await useChatStore.getState().refreshSessions();
+
+    expect(useChatStore.getState().sessions).toEqual([]);
+  });
+
+  it("lets the scanned row win once the scanner ingests the file", async () => {
+    useChatStore.setState({
+      sessions: [meta("s-new")],
+      bySession: { "omp/s-new": { ...EMPTY_SESSION, streaming: true } },
+    });
+    vi.mocked(ipc.listSessions).mockResolvedValue([
+      { ...meta("s-new", "VPN 一直超时"), filePath: "s.jsonl" },
+    ]);
+
+    await useChatStore.getState().refreshSessions();
+
+    const sessions = useChatStore.getState().sessions;
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({
+      sessionId: "s-new",
+      title: "VPN 一直超时",
+      filePath: "s.jsonl",
+    });
   });
 });

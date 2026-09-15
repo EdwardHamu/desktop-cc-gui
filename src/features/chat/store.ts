@@ -59,7 +59,7 @@ import {
   listExternalSessionMetas,
   setSessionSourcesChangedCallback,
 } from "@/features/plugins/runtime/session-source";
-import { appendCommittedRows, mergeExternalSessions, visibleSessions } from "./store/session-utils";
+import { appendCommittedRows, mergeExternalSessions, preserveUnscannedSessions, visibleSessions } from "./store/session-utils";
 import type { ChatStore } from "./store/types";
 
 // Facade re-exports: callers keep importing everything from "../store".
@@ -600,7 +600,10 @@ export const useChatStore = create<ChatStore>((set, get) => {
         get().workspaces.map((w) => w.path),
       );
       set((s) => {
-        const visible = visibleSessions(merged, s.engines);
+        const visible = visibleSessions(
+          preserveUnscannedSessions(merged, s.sessions, s.bySession),
+          s.engines,
+        );
         const bySession = { ...s.bySession };
         for (const meta of merged) {
           const key = sessionKey(meta.engine, meta.sessionId, meta.workspacePath);
@@ -623,21 +626,25 @@ export const useChatStore = create<ChatStore>((set, get) => {
         listExternalSessionMetas(),
       ]);
       if (!engines) return;
-      set({
+      set((s) => ({
         engines,
         ...(sessions
           ? {
               sessions: visibleSessions(
-                mergeExternalSessions(
-                  sessions,
-                  external,
-                  get().workspaces.map((w) => w.path),
+                preserveUnscannedSessions(
+                  mergeExternalSessions(
+                    sessions,
+                    external,
+                    s.workspaces.map((w) => w.path),
+                  ),
+                  s.sessions,
+                  s.bySession,
                 ),
                 engines,
               ),
             }
           : {}),
-      });
+      }));
       ensureUsableEngine(engines);
     },
 
