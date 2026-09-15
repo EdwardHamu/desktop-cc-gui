@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useChatStore } from "./store";
 import { SessionTabStrip } from "./components/SessionTabStrip";
@@ -10,11 +10,14 @@ import PanelLeftOpen from "lucide-react/dist/esm/icons/panel-left-open";
 import { TerminalDock } from "@/features/terminal/TerminalDock";
 import { useTerminalStore } from "@/features/terminal/store";
 import { useGitStore } from "@/features/git/store";
-import { ipc } from "@/lib/ipc";
 import { cx } from "@/utils/cx";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { useLayoutPanels } from "./use-layout-panels";
-import { commandRegistry } from "@ccgui/plugin-sdk";
-import { keywords } from "@/features/commands/builtins";
+import {
+  useChatPageLifecycle,
+  useChatShortcutHandlers,
+  useLayoutCommands,
+} from "./use-chat-page-effects";
 import { useChatTabs } from "./use-chat-tabs";
 import { useChatSidebar } from "./use-chat-sidebar";
 import { ChatPageDialogs, type ChatPageDialog } from "./ChatPageDialogs";
@@ -34,6 +37,13 @@ const NEEDS_TITLEBAR_HAIRLINE =
   !isWeb &&
   typeof navigator !== "undefined" &&
   /windows/i.test(navigator.userAgent);
+
+// Below Tailwind's xl breakpoint the side panel and the chat column cannot
+// both be comfortable, so the panel defaults to collapsed there. It stays
+// expandable: the titlebar toggle renders at every width.
+const PANEL_MEDIA = "(max-width: 1279px)";
+// Floor reserved for the chat column when clamping the panel width.
+const CHAT_MIN_WIDTH = 320;
 
 export default function ChatPage() {
   const { t } = useTranslation();
@@ -67,27 +77,46 @@ export default function ChatPage() {
     sidebarResizerRef,
   } = useLayoutPanels();
 
-  // Layout toggles registered as palette commands (plan §4.2 #9): the toggles
-  // live in this hook instance, so registration happens here where they're in
-  // scope. ChatPage stays mounted for the app's lifetime; the cleanup keeps
-  // the registry honest under HMR.
+  // Narrow windows default to a collapsed panel. The override is local and
+  // deliberately NOT persisted: toggling while narrow must not clobber the
+  // wide-window preference, and every breakpoint crossing re-applies the
+  // default while an explicit expand sticks until the next crossing.
+  const narrowPanel = useMediaQuery(PANEL_MEDIA);
+  const [narrowPanelExpanded, setNarrowPanelExpanded] = useState(false);
   useEffect(() => {
-    const disposers = [
-      commandRegistry.register({
-        id: "builtin:toggleSidePanel",
-        title: () => t("commands.toggleSidePanel"),
-        keywords: keywords("commands.toggleSidePanelKeywords"),
-        run: togglePanelCollapsed,
-      }),
-      commandRegistry.register({
-        id: "builtin:toggleSidebar",
-        title: () => t("commands.toggleSidebar"),
-        keywords: keywords("commands.toggleSidebarKeywords"),
-        run: toggleSidebarCollapsed,
-      }),
-    ];
-    return () => disposers.forEach((d) => d());
-  }, [t, togglePanelCollapsed, toggleSidebarCollapsed]);
+    setNarrowPanelExpanded(false);
+  }, [narrowPanel]);
+  const panelCollapsedEffective = narrowPanel
+    ? !narrowPanelExpanded
+    : panelCollapsed;
+  const handleTogglePanel = useCallback(() => {
+    if (narrowPanel) setNarrowPanelExpanded((prev) => !prev);
+    else togglePanelCollapsed();
+  }, [narrowPanel, togglePanelCollapsed]);
+  // The persisted width can exceed what is left beside the sidebar, so clamp
+  // it for rendering only: storage keeps the user's width, and drags still
+  // mutate style.width imperatively against the real min/max. Measured off
+  // the center row rather than window.innerWidth because the sidebar overlays
+  // the content below md instead of taking layout space.
+  const centerRowRef = useRef<HTMLDivElement>(null);
+  const [centerRowWidth, setCenterRowWidth] = useState(0);
+  useEffect(() => {
+    const el = centerRowRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() =>
+      setCenterRowWidth(el.getBoundingClientRect().width),
+    );
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  // Before the first measurement centerRowWidth is 0; fall back to the stored
+  // width so the panel does not flash collapsed on mount.
+  const panelWidthEffective =
+    centerRowWidth > 0
+      ? Math.min(panelWidth, Math.max(0, centerRowWidth - CHAT_MIN_WIDTH))
+      : panelWidth;
+
+  useLayoutCommands(handleTogglePanel, toggleSidebarCollapsed);
   const {
     tabItems,
     activeTabKey,
@@ -116,6 +145,7 @@ export default function ChatPage() {
     handleAddWorkspace,
     handleThreadSelect,
     handleThreadAction,
+    handleCopyThreadId,
     handleRemoveWorkspace,
     handleWorkspaceAlias,
     handleSetWorkspaceArchived,
@@ -130,44 +160,12 @@ export default function ChatPage() {
     setDialog,
   });
 
-  useEffect(() => {
-    void init();
-  }, [init]);
-
-  // Refocus rescan: 5min TTL, aligned with TokenTracker tier-1.
-  useEffect(() => {
-    let lastScan = Date.now();
-    const onFocus = () => {
-      if (Date.now() - lastScan > 5 * 60_000) {
-        lastScan = Date.now();
-        void ipc.rescanSessions().catch(() => {});
-      }
-    };
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, []);
-
-  // Git status follows the active workspace (30s TTL inside the store).
-  useEffect(() => {
-    if (active?.workspacePath) void gitRefresh(active.workspacePath);
-  }, [active?.workspacePath, gitRefresh]);
-  // ⌘J / Ctrl+J toggles the terminal dock for the active workspace.
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (
-        (e.metaKey || e.ctrlKey) &&
-        !e.shiftKey &&
-        !e.altKey &&
-        e.key.toLowerCase() === "j"
-      ) {
-        if (!active) return;
-        e.preventDefault();
-        toggleTerminal(active.workspacePath);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [active, toggleTerminal]);
+  useChatPageLifecycle(init, gitRefresh, active?.workspacePath);
+  useChatShortcutHandlers(
+    active?.workspacePath,
+    toggleTerminal,
+    handleNewSession,
+  );
 
   return (
     <div
@@ -198,6 +196,7 @@ export default function ChatPage() {
         sections={sections}
         onThreadSelect={handleThreadSelect}
         onThreadAction={handleThreadAction}
+        onCopyThreadId={handleCopyThreadId}
         onAddWorkspace={handleAddWorkspace}
         onRemoveWorkspace={handleRemoveWorkspace}
         onWorkspaceAlias={handleWorkspaceAlias}
@@ -238,9 +237,9 @@ export default function ChatPage() {
                 workspacePath={active.workspacePath}
                 panelTab={panelTab}
                 onPanelTabChange={setPanelTab}
-                panelCollapsed={panelCollapsed}
-                onTogglePanelCollapsed={togglePanelCollapsed}
-                panelWidth={panelWidth}
+                panelCollapsed={panelCollapsedEffective}
+                onTogglePanelCollapsed={handleTogglePanel}
+                panelWidth={panelWidthEffective}
                 panelHeaderRef={panelHeaderRef}
                 dragging={dragging}
               />
@@ -259,6 +258,7 @@ export default function ChatPage() {
         <div
           id="center-tabpanel"
           role="tabpanel"
+          ref={centerRowRef}
           className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden"
         >
           <ChatCenterPane
@@ -276,8 +276,8 @@ export default function ChatPage() {
           <ChatSidePanel
             active={active}
             panelRef={panelRef}
-            panelWidth={panelWidth}
-            panelCollapsed={panelCollapsed}
+            panelWidth={panelWidthEffective}
+            panelCollapsed={panelCollapsedEffective}
             dragging={dragging}
             panelTab={panelTab}
             onResizeStart={handleResizeStart("panel")}

@@ -25,6 +25,7 @@ export function ChatSidebarFrame({
   sections,
   onThreadSelect,
   onThreadAction,
+  onCopyThreadId,
   onAddWorkspace,
   onRemoveWorkspace,
   onWorkspaceAlias,
@@ -47,6 +48,7 @@ export function ChatSidebarFrame({
   sections?: AiChatRepoSection[];
   onThreadSelect: (id: string) => void;
   onThreadAction: (id: string, action: ThreadAction) => void;
+  onCopyThreadId: (id: string) => void;
   onAddWorkspace: () => void;
   onRemoveWorkspace: (workspaceId: string) => void;
   onWorkspaceAlias: (workspaceId: string) => void;
@@ -79,6 +81,7 @@ export function ChatSidebarFrame({
         activeThreadId={active?.sessionId ? `${active.engine}/${active.sessionId}` : undefined}
         onThreadSelect={onThreadSelect}
         onThreadAction={onThreadAction}
+        onCopyThreadId={onCopyThreadId}
         onAddWorkspace={onAddWorkspace}
         onRemoveWorkspace={onRemoveWorkspace}
         onWorkspaceAlias={onWorkspaceAlias}

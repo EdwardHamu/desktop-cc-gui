@@ -127,12 +127,20 @@ impl Engine for ClaudeEngine {
         match event_type {
             "system" => {
                 push_session_id(&value, "session_id", out);
-                // api_retry precedes minutes of silent exponential backoff
-                // (10 attempts, 30s+ delays); surface it as a non-terminal
-                // warning so the UI shows progress instead of a dead spinner.
                 let subtype = value.get("subtype").and_then(Value::as_str);
                 if subtype == Some("api_retry") {
-                    out.push(EngineEvent::Warn(format_api_retry(&value)));
+                    // Live progress, not an error: the CLI backs off for
+                    // minutes (10 attempts, 30s+ delays) and then continues.
+                    // The run status line shows "重试中 x/y"; the detail
+                    // rides along for its tooltip.
+                    out.push(EngineEvent::Retry {
+                        attempt: value.get("attempt").and_then(Value::as_u64).unwrap_or(0),
+                        max: value
+                            .get("max_retries")
+                            .and_then(Value::as_u64)
+                            .unwrap_or(0),
+                        message: format_api_retry(&value),
+                    });
                 } else if subtype == Some("compact_boundary") {
                     if let Some(post_tokens) = value
                         .get("compactMetadata")
@@ -257,7 +265,8 @@ impl Engine for ClaudeEngine {
                     }
                 } else {
                     raw_usage
-                };
+                }
+                .map(|usage| attach_reported_context_window(usage, &value));
                 let is_error = value
                     .get("is_error")
                     .and_then(Value::as_bool)
@@ -277,6 +286,47 @@ impl Engine for ClaudeEngine {
             _ => {}
         }
     }
+}
+
+/// Fold the CLI's reported context window into a turn's usage.
+///
+/// Claude's `result` line carries the window per model under `modelUsage`
+/// (`{ "<model>": { contextWindow, maxOutputTokens, … } }`); it never sends
+/// `model_context_window`, which is the key the rest of the app reads. Without
+/// this, every Claude turn fell through to the UI's assumed 200k — wrong for
+/// the 1M `[1m]` variants, and unverifiable for the rest.
+///
+/// A turn can name several models (a subagent on a cheap model, background
+/// work). The one that actually ran the turn is the one with the most tokens,
+/// so its window wins; entries without a usable window are ignored.
+fn attach_reported_context_window(mut usage: Value, source: &Value) -> Value {
+    if usage.get("model_context_window").is_some() {
+        return usage;
+    }
+    let Some(models) = source.get("modelUsage").and_then(Value::as_object) else {
+        return usage;
+    };
+    let busiest = models
+        .values()
+        .filter_map(|model| {
+            let window = model.get("contextWindow").and_then(Value::as_i64)?;
+            if window <= 0 {
+                return None;
+            }
+            let tokens: i64 = ["inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens"]
+                .iter()
+                .filter_map(|key| model.get(*key).and_then(Value::as_i64))
+                .sum();
+            Some((tokens, window))
+        })
+        .max_by_key(|(tokens, _)| *tokens);
+    let Some((_, window)) = busiest else {
+        return usage;
+    };
+    if let Some(object) = usage.as_object_mut() {
+        object.insert("model_context_window".to_string(), Value::from(window));
+    }
+    usage
 }
 
 /// Usage snapshot for a compacted turn. Occupancy is the post-compaction
@@ -669,7 +719,7 @@ mod tests {
     }
 
     #[test]
-    fn api_retry_system_event_warns_without_settling() {
+    fn api_retry_system_event_reports_progress_without_settling() {
         let line = serde_json::json!({
             "type": "system",
             "subtype": "api_retry",
@@ -685,12 +735,16 @@ mod tests {
         ClaudeEngine::new().parse_line(&line, &mut out);
         assert_eq!(out.len(), 2);
         match &out[1] {
-            EngineEvent::Warn(msg) => {
-                assert!(msg.contains("529"), "{msg}");
-                assert!(msg.contains("3/10"), "{msg}");
-                assert!(msg.contains("9.6s"), "{msg}");
+            EngineEvent::Retry {
+                attempt,
+                max,
+                message,
+            } => {
+                assert_eq!((*attempt, *max), (3, 10));
+                assert!(message.contains("529"), "{message}");
+                assert!(message.contains("9.6s"), "{message}");
             }
-            _ => panic!("expected retry warning"),
+            other => panic!("expected retry progress, got {other:?}"),
         }
     }
 
@@ -709,8 +763,10 @@ mod tests {
         let mut out = Vec::new();
         ClaudeEngine::new().parse_line(&line, &mut out);
         match &out[0] {
-            EngineEvent::Warn(msg) => assert!(msg.starts_with("API error;"), "{msg}"),
-            _ => panic!("expected retry warning"),
+            EngineEvent::Retry { message, .. } => {
+                assert!(message.starts_with("API error;"), "{message}")
+            }
+            other => panic!("expected retry progress, got {other:?}"),
         }
     }
 
@@ -916,5 +972,129 @@ mod tests {
         let mut out = Vec::new();
         ClaudeEngine::new().parse_line(&line, &mut out);
         assert!(out.is_empty());
+    }
+
+    /// The UI's context gauge divided by a hardcoded 200k because nothing
+    /// read the window the CLI reports per model. The result line carries it
+    /// under `modelUsage`; the model that did the work is the busiest one, so
+    /// a cheap subagent's window must not win a mixed turn.
+    #[test]
+    fn result_reports_the_window_of_the_model_that_did_the_work() {
+        let line = serde_json::json!({
+            "type": "result",
+            "subtype": "success",
+            "is_error": false,
+            "session_id": "s-1",
+            "usage": { "input_tokens": 900000, "output_tokens": 2000, "total_tokens": 902000 },
+            "modelUsage": {
+                "claude-haiku-4-5": {
+                    "inputTokens": 300, "outputTokens": 40, "contextWindow": 200000
+                },
+                "claude-opus-5[1m]": {
+                    "inputTokens": 880000, "outputTokens": 1250, "contextWindow": 1000000
+                }
+            }
+        })
+        .to_string();
+        let mut out = Vec::new();
+        ClaudeEngine::new().parse_line(&line, &mut out);
+        match &out[0] {
+            EngineEvent::Done { usage, .. } => {
+                let usage = usage.as_ref().expect("usage");
+                assert_eq!(usage["model_context_window"], 1_000_000);
+                // The billing figures stay the CLI's own.
+                assert_eq!(usage["input_tokens"], 900000);
+            }
+            _ => panic!("expected done event"),
+        }
+    }
+
+    /// Nothing usable reported ⇒ no key at all, so the UI keeps its own
+    /// explicit fallback instead of this layer inventing a number.
+    #[test]
+    fn result_without_a_reported_window_adds_nothing() {
+        for models in [None, Some(serde_json::json!({})), Some(serde_json::json!({
+            "m": { "inputTokens": 10, "contextWindow": 0 }
+        }))] {
+            let mut value = serde_json::json!({
+                "type": "result",
+                "subtype": "success",
+                "is_error": false,
+                "session_id": "s-1",
+                "usage": { "input_tokens": 10, "output_tokens": 1, "total_tokens": 11 }
+            });
+            if let Some(models) = models {
+                value["modelUsage"] = models;
+            }
+            let mut out = Vec::new();
+            ClaudeEngine::new().parse_line(&value.to_string(), &mut out);
+            match &out[0] {
+                EngineEvent::Done { usage, .. } => {
+                    assert!(usage.as_ref().expect("usage").get("model_context_window").is_none());
+                }
+                _ => panic!("expected done event"),
+            }
+        }
+    }
+
+    /// An explicitly reported window is the more specific statement and must
+    /// survive the per-model map.
+    #[test]
+    fn explicit_context_window_beats_the_model_map() {
+        let line = serde_json::json!({
+            "type": "result",
+            "subtype": "success",
+            "is_error": false,
+            "session_id": "s-1",
+            "usage": {
+                "input_tokens": 10, "output_tokens": 1, "total_tokens": 11,
+                "model_context_window": 500000
+            },
+            "modelUsage": { "m": { "inputTokens": 10, "contextWindow": 200000 } }
+        })
+        .to_string();
+        let mut out = Vec::new();
+        ClaudeEngine::new().parse_line(&line, &mut out);
+        match &out[0] {
+            EngineEvent::Done { usage, .. } => {
+                assert_eq!(usage.as_ref().expect("usage")["model_context_window"], 500000);
+            }
+            _ => panic!("expected done event"),
+        }
+    }
+
+    /// A compacted turn's usage is rebuilt from the boundary, so the window
+    /// has to be re-attached there too — that path dropped it before.
+    #[test]
+    fn compacted_turn_keeps_the_reported_window() {
+        let engine = ClaudeEngine::new();
+        let boundary = serde_json::json!({
+            "type": "system",
+            "subtype": "compact_boundary",
+            "compactMetadata": { "preTokens": 900000, "postTokens": 40000, "durationMs": 1000 }
+        })
+        .to_string();
+        let mut out = Vec::new();
+        engine.parse_line(&boundary, &mut out);
+
+        let result = serde_json::json!({
+            "type": "result",
+            "subtype": "success",
+            "is_error": false,
+            "session_id": "s-1",
+            "usage": { "input_tokens": 900000, "output_tokens": 50, "total_tokens": 900050 },
+            "modelUsage": { "claude-opus-5[1m]": { "inputTokens": 900000, "contextWindow": 1000000 } }
+        })
+        .to_string();
+        let mut out = Vec::new();
+        engine.parse_line(&result, &mut out);
+        match &out[0] {
+            EngineEvent::Done { usage, .. } => {
+                let usage = usage.as_ref().expect("usage");
+                assert_eq!(usage["input_tokens"], 40000);
+                assert_eq!(usage["model_context_window"], 1_000_000);
+            }
+            _ => panic!("expected done event"),
+        }
     }
 }

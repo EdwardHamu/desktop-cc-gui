@@ -12,12 +12,16 @@ import {
   WorkspaceContextMenu,
 } from "@/components/application/ai-chat/workspace-context-menu";
 import {
+  ThreadContextMenu,
+} from "@/components/application/ai-chat/thread-context-menu";
+import {
   ARCHIVED_SECTION_ID,
   useCollapsedGroups,
   useExpandedWorkspaces,
   useFilteredWorkspaces,
   useSidebarSearch,
   useWorkspaceMenu,
+  useThreadMenu,
 } from "@/components/application/ai-chat/use-sidebar-state";
 import { ArchivedSection, WorkspaceSection } from "@/components/application/ai-chat/workspace-sections";
 import type { AiChatRepo, AiChatRepoSection, ThreadAction } from "@/components/application/ai-chat/sidebar-types";
@@ -124,6 +128,7 @@ export function AiChatSidebar({
   onNewSession,
   onReorderWorkspaces,
   onThreadAction,
+  onCopyThreadId,
   onAddWorkspace,
   onRemoveWorkspace,
   onWorkspaceAlias,
@@ -145,6 +150,8 @@ export function AiChatSidebar({
   activeThreadId?: string;
   onThreadSelect?: (id: string) => void;
   onThreadAction?: (id: string, action: ThreadAction) => void;
+  /** Thread context-menu action: copy the session id to the clipboard. */
+  onCopyThreadId?: (id: string) => void;
   onAddWorkspace?: () => void;
   onRemoveWorkspace?: (id: string) => void;
   /** Workspace context-menu action: open the set-alias dialog for the row. */
@@ -180,6 +187,10 @@ export function AiChatSidebar({
   const { isRepoExpanded, toggleRepoExpanded } = useExpandedWorkspaces(allRepos);
   const { workspaceMenu, closeWorkspaceMenu, openWorkspaceMenu, openArchivedMenu } =
     useWorkspaceMenu(onWorkspaceAlias, onSetWorkspaceArchived);
+  const { threadMenu, openThreadMenu, closeThreadMenu } = useThreadMenu(
+    onThreadAction,
+    onCopyThreadId,
+  );
   const { filteredRepos, filteredSections, filteredArchivedRepos } = useFilteredWorkspaces(
     repos,
     sections,
@@ -254,6 +265,7 @@ export function AiChatSidebar({
             activeThreadId={activeThreadId}
             onThreadSelect={onThreadSelect}
             onThreadAction={onThreadAction}
+            onThreadContextMenu={openThreadMenu}
             onAddWorkspace={onAddWorkspace}
             onRemoveWorkspace={onRemoveWorkspace}
             onNewSessionInWorkspace={onNewSessionInWorkspace}
@@ -304,6 +316,14 @@ export function AiChatSidebar({
           onClose={closeWorkspaceMenu}
           onSetAlias={onWorkspaceAlias}
           onSetArchived={onSetWorkspaceArchived}
+        />
+      )}
+      {threadMenu && (onThreadAction || onCopyThreadId) && (
+        <ThreadContextMenu
+          menu={threadMenu}
+          onClose={closeThreadMenu}
+          onThreadAction={onThreadAction}
+          onCopyId={onCopyThreadId}
         />
       )}
     </aside>

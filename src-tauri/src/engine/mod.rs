@@ -9,8 +9,12 @@ pub mod grok;
 pub mod images;
 pub mod kimi;
 pub mod models;
+pub mod opencode;
 pub mod pi_family;
+pub mod wsl_transport;
 pub mod pi_family_auth;
+pub mod qoder;
+mod qoder_session;
 pub mod resolve;
 
 pub(crate) use resolve::command_for_binary;
@@ -100,6 +104,21 @@ pub enum EngineEvent {
     /// Non-terminal engine notice (e.g. an upstream 429 the CLI is
     /// retrying): surfaced to the UI, but the turn is still running.
     Warn(String),
+    /// One model attempt ended, but the CLI may retry or compact next.
+    /// Keep its outcome for EOF; unlike Error/Done, this never ends the run.
+    AttemptEnd { error: Option<String> },
+    /// The CLI is backing off before re-issuing a request (claude
+    /// `system/api_retry`, omp `auto_retry_start`). Distinct from `Warn`
+    /// because the UI shows it as live progress ("重试中 2/5") in the run
+    /// status line rather than as an error banner; cleared by the next
+    /// content event or by the turn settling.
+    Retry {
+        attempt: u64,
+        /// The CLI's own retry budget; 0 when it does not report one.
+        max: u64,
+        /// Human-readable reason (HTTP status / provider message).
+        message: String,
+    },
     /// A tool call was denied by the CLI's permission system (headless mode
     /// cannot prompt). `path` is the denied absolute path when the denial
     /// text or tool input carries one — the UI offers a directory grant for
@@ -133,6 +152,20 @@ pub struct TodoItem {
 pub struct TodosPayload {
     pub items: Vec<TodoItem>,
     pub replace: bool,
+}
+
+/// Normalize a CLI's todo status onto the four the UI renders. Every CLI
+/// spells these differently (claude `in_progress`, omp `running`/`active`,
+/// `abandoned` for a dropped task), and a status the UI does not know reads
+/// as "pending" - showing finished or abandoned work as still to do.
+fn todo_status(raw: Option<&str>) -> &'static str {
+    match raw.unwrap_or("") {
+        "in_progress" | "running" | "active" => "active",
+        "completed" | "complete" | "done" => "complete",
+        "blocked" => "blocked",
+        "dropped" | "cancelled" | "abandoned" | "deleted" => "dropped",
+        _ => "pending",
+    }
 }
 
 /// Drop empty / null payloads so the UI does not render a blank args panel.
@@ -195,13 +228,62 @@ pub(crate) fn tool_call_patch(name: impl Into<String>, args: Option<&Value>) -> 
     }
 }
 
-/// Patches execution result onto the matching in-flight tool row.
+/// Todo state echoed by the todo tool's own result (`details.phases`).
+///
+/// This is the authoritative snapshot: omp answers every todo call (init,
+/// start, done, block, append, view) with the complete post-op list, where
+/// each phase carries its tasks and their current status. Reading it avoids
+/// two live-path gaps at once — the start event carries no `args` for this
+/// tool, and `done`/`block` may name a PHASE instead of one task, which a
+/// task-keyed patch could never apply. `replace: true` because the payload
+/// is a full list, not a delta.
+pub(crate) fn parse_todo_result(result: &Value) -> Option<TodosPayload> {
+    let phases = result
+        .get("details")
+        .and_then(|d| d.get("phases"))
+        .and_then(Value::as_array)?;
+    let mut items = Vec::new();
+    for phase in phases {
+        let Some(tasks) = phase.get("tasks").and_then(Value::as_array) else {
+            continue;
+        };
+        for task in tasks {
+            let Some(content) = task
+                .get("content")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            else {
+                continue;
+            };
+            let status = todo_status(task.get("status").and_then(Value::as_str));
+            items.push(TodoItem {
+                id: None,
+                content: content.to_string(),
+                status: status.to_string(),
+            });
+        }
+    }
+    if items.is_empty() {
+        return None;
+    }
+    Some(TodosPayload {
+        items,
+        replace: true,
+    })
+}
+
+/// Patches execution result onto the matching in-flight tool row. A todo
+/// tool's result carries the full list (`details.phases`), so it doubles as
+/// an authoritative todo snapshot — the live path's only reliable source for
+/// this tool (see [`parse_todo_result`]).
 pub(crate) fn tool_result_patch(name: impl Into<String>, result: Option<&Value>) -> EngineEvent {
+    let todos = result.and_then(parse_todo_result);
     EngineEvent::Message {
         role: "tool".to_string(),
         text: name.into(),
         path: None,
-        todos: None,
+        todos,
         args: None,
         result: result.cloned(),
         patch: true,
@@ -278,12 +360,7 @@ pub(crate) fn parse_todo_args(args: &Value) -> Option<TodosPayload> {
                     .filter_map(|key| entry.get(key).and_then(Value::as_str))
                     .map(|s| s.trim())
                     .find(|s| !s.is_empty())?;
-                let status = match entry.get("status").and_then(Value::as_str).unwrap_or("") {
-                    "in_progress" | "running" | "active" => "active",
-                    "completed" | "complete" | "done" => "complete",
-                    "blocked" => "blocked",
-                    _ => "pending",
-                };
+                let status = todo_status(entry.get("status").and_then(Value::as_str));
                 let id = entry
                     .get("id")
                     .or_else(|| entry.get("taskId"))
@@ -310,12 +387,7 @@ pub(crate) fn parse_todo_args(args: &Value) -> Option<TodosPayload> {
         .filter(|s| !s.is_empty())
     {
         if args.get("taskId").is_none() && args.get("op").is_none() {
-            let status = match args.get("status").and_then(Value::as_str).unwrap_or("") {
-                "in_progress" | "running" | "active" => "active",
-                "completed" | "complete" | "done" => "complete",
-                "blocked" => "blocked",
-                _ => "pending",
-            };
+            let status = todo_status(args.get("status").and_then(Value::as_str));
             return Some(TodosPayload {
                 items: vec![TodoItem {
                     id: None,
@@ -340,13 +412,7 @@ pub(crate) fn parse_todo_args(args: &Value) -> Option<TodosPayload> {
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .unwrap_or("");
-        let status = match args.get("status").and_then(Value::as_str).unwrap_or("") {
-            "in_progress" | "running" | "active" => "active",
-            "completed" | "complete" | "done" => "complete",
-            "blocked" => "blocked",
-            "deleted" => "dropped",
-            _ => "pending",
-        };
+        let status = todo_status(args.get("status").and_then(Value::as_str));
         return Some(TodosPayload {
             items: vec![TodoItem {
                 id: Some(task_id.to_string()),
@@ -374,6 +440,13 @@ pub(crate) fn parse_todo_args(args: &Value) -> Option<TodosPayload> {
             })
         }
         "start" | "done" | "block" | "unblock" | "drop" => {
+            // `task` names ONE item. A phase-wide op names a `phase` instead
+            // (the CLI pairs it with an empty `items` array) and must NOT be
+            // emitted here: the frontend matches patches by `content`, so a
+            // phase name would find no item and get APPENDED as a phantom
+            // row. Phase-wide moves travel via the tool's own result
+            // snapshot (`parse_todo_result`), which always carries the
+            // complete post-op list.
             let task = args.get("task").and_then(Value::as_str)?;
             let status = match op {
                 "start" => "active",
@@ -440,6 +513,13 @@ pub fn engine_by_id(id: &str) -> Option<Box<dyn Engine>> {
         "omp" => Some(Box::new(pi_family::omp())),
         "dsh" => Some(Box::new(dsh::DshEngine)),
         "agy" => Some(Box::new(agy::AgyEngine)),
+        "opencode" => Some(Box::new(opencode::OpenCodeEngine)),
+        "qoder" => Some(Box::new(qoder::QoderEngine::new(
+            qoder::QoderDistribution::Global,
+        ))),
+        "qoder-cn" => Some(Box::new(qoder::QoderEngine::new(
+            qoder::QoderDistribution::Cn,
+        ))),
         _ => None,
     }
 }
@@ -848,6 +928,17 @@ fn codex_bin_from_home(settings: &crate::settings::AppSettings) -> Option<String
     candidate.exists().then(|| resolve::resolve_launchable_cli_binary(&candidate.to_string_lossy()))
 }
 
+/// CLI binary name behind an engine id, when they differ: qoder's engine ids
+/// name the product/distribution, but only the `qodercli*` binaries speak
+/// ACP (the `qoder` binary is the IDE launcher and is rejected at spawn).
+pub(crate) fn cli_binary_name(engine_id: &str) -> &str {
+    match engine_id {
+        "qoder" => qoder::QoderDistribution::Global.cli_name(),
+        "qoder-cn" => qoder::QoderDistribution::Cn.cli_name(),
+        _ => engine_id,
+    }
+}
+
 pub(crate) fn engine_bin(settings: &crate::settings::AppSettings, engine_id: &str) -> String {
     // An explicit bin override always wins: it predates the codex-home row
     // (hidden for codex in the UI), and a stale codexBin in an upgraded
@@ -870,7 +961,7 @@ pub(crate) fn engine_bin(settings: &crate::settings::AppSettings, engine_id: &st
             return from_home;
         }
     }
-    resolve::resolve_launchable_cli_binary(engine_id)
+    resolve::resolve_launchable_cli_binary(cli_binary_name(engine_id))
 }
 
 #[tauri::command]
@@ -886,7 +977,7 @@ pub fn list_engines() -> Vec<EngineInfo> {
                     crate::settings::validate_bin_override(custom).is_ok()
                 }
                 _ if *id == "codex" && codex_bin_from_home(&settings).is_some() => true,
-                _ => resolve::find_cli_binary(id, None).is_some(),
+                _ => resolve::find_cli_binary(cli_binary_name(id), None).is_some(),
             };
             EngineInfo {
                 id: id.to_string(),
@@ -1043,8 +1134,9 @@ struct TurnState {
     native_session_id: Option<String>,
     saw_done: bool,
     saw_error: bool,
+    attempt_error: Option<String>,
     // NOTE: TurnState lives for the whole process (one run_reader per
-    // spawn), so once saw_error is set every later Done in this process
+    // spawn), so once saw_error is set every later event in this process
     // is suppressed. That is correct for the current one-process-per-turn
     // engines (omp --print, codex exec); a future multi-turn-per-process
     // engine must reset this per turn instead.
@@ -1058,6 +1150,7 @@ impl TurnState {
             native_session_id: preassigned,
             saw_done: false,
             saw_error: false,
+            attempt_error: None,
             saw_any_output: false,
         }
     }
@@ -1128,6 +1221,11 @@ impl TurnCore {
     }
 
     fn dispatch_event(&self, state: &mut TurnState, event: EngineEvent) {
+        // Killing the child after an Error races with already-buffered stdout.
+        // No late retry/content event may revive that terminal run.
+        if state.saw_error {
+            return;
+        }
         match event {
             EngineEvent::Delta(text) => state.push(
                 &self.sink,
@@ -1178,6 +1276,7 @@ impl TurnCore {
                     payload,
                 )
             }
+            EngineEvent::AttemptEnd { error } => state.attempt_error = error,
             EngineEvent::SessionId(id) => self.adopt_session_id(state, &id, true),
             EngineEvent::Usage(usage) => {
                 state.push(&self.sink, &self.run_id, &self.engine_id, "usage", usage)
@@ -1218,6 +1317,23 @@ impl TurnCore {
                     Value::String(error),
                 );
             }
+            EngineEvent::Retry {
+                attempt,
+                max,
+                message,
+            } => {
+                // Not terminal: the CLI is backing off and will re-issue the
+                // request. The frontend renders it as live progress in the
+                // run status line (not as an error banner) and clears it on
+                // the next content event.
+                state.push(
+                    &self.sink,
+                    &self.run_id,
+                    &self.engine_id,
+                    "retry",
+                    serde_json::json!({ "attempt": attempt, "max": max, "message": message }),
+                );
+            }
             EngineEvent::PermissionDenied {
                 tool,
                 path,
@@ -1243,13 +1359,6 @@ impl TurnCore {
                 );
             }
             EngineEvent::Done { session_id, usage } => {
-                // A Done after a terminal Error must never reach the UI: it
-                // clears the error banner and flips a failed turn back to
-                // "success" in the footer. Engines can emit both in one
-                // flush (omp: turn_end error, then agent_end done).
-                if state.saw_error {
-                    return;
-                }
                 state.saw_done = true;
                 if let Some(id) = session_id {
                     self.adopt_session_id(state, &id, false);
@@ -1470,14 +1579,16 @@ async fn run_reader(stdout: ChildStdout, ctx: RunContext) {
                 "done",
                 serde_json::json!({ "usage": null }),
             );
-        } else if failed || !state.saw_any_output {
-            let mut message = format!(
-                "{} exited with status {}",
-                ctx.core.engine_id,
-                status
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "unknown".to_string())
-            );
+        } else if failed || !state.saw_any_output || state.attempt_error.is_some() {
+            let mut message = state.attempt_error.take().unwrap_or_else(|| {
+                format!(
+                    "{} exited with status {}",
+                    ctx.core.engine_id,
+                    status
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| "unknown".to_string())
+                )
+            });
             if !stderr_tail.is_empty() {
                 message.push_str(&format!(": {stderr_tail}"));
             }
@@ -1563,14 +1674,48 @@ pub async fn send_message_inner(
         state.db.granted_roots().unwrap_or_default(),
     )?;
 
+    // WSL 远程工作区:引擎进程经 ssh 在发行版内执行(见 wsl_transport)。
+    let wsl_tp = wsl_transport::transport_for_workspace(&state.db, &workspace_path);
     // Host-stream engines drive their own transport: no child process — the
-    // registry entry only routes interrupts to the transport task.
+    // registry entry only routes interrupts to the transport task. 远程
+    // 工作区下没有可包装的子进程,本机 host 又对远端路径无意义,显式拒绝。
     if launch.engine_impl.drives_own_transport() {
+        if wsl_tp.is_some() {
+            return Err(format!("引擎 {engine} 不支持远程工作区(WSL)"));
+        }
         return send_host_stream(state, launch, engine).await;
     }
-
-    let mut command = launch.built.command;
-    if engine == "codex" {
+    let (mut command, extra_cleanup, skip_local_cwd) = match &wsl_tp {
+        Some(tp) => {
+            // 依赖本机 staging 文件的引擎(grok 等 cleanup_files 非空):
+            // 远端 CLI 读不到本机文件,直接拒绝而非跑出莫名其妙的失败;
+            // 已写盘的 staging 文件顺手清掉,不 strand。
+            if !launch.built.cleanup_files.is_empty() {
+                for path in &launch.built.cleanup_files {
+                    let _ = std::fs::remove_file(path);
+                }
+                return Err(format!(
+                    "引擎 {engine} 不支持远程工作区(WSL):依赖本机临时文件"
+                ));
+            }
+            match wsl_transport::wrap(launch.built.command, tp).await {
+                Ok(wrapped) => (wrapped.command, wrapped.cleanup_files, wrapped.skip_local_cwd),
+                Err(error) => {
+                    // wrap 失败(ssh 上传失败等)同样不许 strand staging 文件。
+                    for path in &launch.built.cleanup_files {
+                        let _ = std::fs::remove_file(path);
+                    }
+                    return Err(error);
+                }
+            }
+        }
+        None => (launch.built.command, Vec::new(), false),
+    };
+    let mut cleanup_files = launch.built.cleanup_files;
+    cleanup_files.extend(extra_cleanup);
+    // 本地 env 不跨 ssh:WSL 分支的 command 是本地 ssh 进程,apply 无意义
+    // (还白跑一次登录 shell 解析);远端 codex 用发行版自己的配置。
+    if engine == "codex" && wsl_tp.is_none() {
         codex_provider_env::apply(&mut command).await;
     }
     command
@@ -1580,8 +1725,13 @@ pub async fn send_message_inner(
             std::process::Stdio::null()
         })
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .current_dir(&launch.req.workspace);
+        .stderr(std::process::Stdio::piped());
+    // 远程工作区路径在本机不存在 → cwd 落本地当前目录(wsl.exe/ssh 不关心)。
+    if skip_local_cwd {
+        command.current_dir(wsl_transport::fallback_cwd());
+    } else {
+        command.current_dir(&launch.req.workspace);
+    }
     // Own process group so interrupt can kill the whole tree (grandchildren
     // inherit the stdout pipe and would otherwise block EOF forever).
     #[cfg(unix)]
@@ -1592,8 +1742,9 @@ pub async fn send_message_inner(
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
-            // Never strand the staging files build_command wrote (grok).
-            for path in &launch.built.cleanup_files {
+            // Never strand the staging files build_command wrote (grok) or
+            // the remote-run script marker (wsl transport).
+            for path in &cleanup_files {
                 let _ = std::fs::remove_file(path);
             }
             return Err(format!("failed to spawn {}: {error}", launch.bin));
@@ -1613,7 +1764,7 @@ pub async fn send_message_inner(
             Some(pair) => pair,
             None => {
                 let _ = child.start_kill();
-                for path in &launch.built.cleanup_files {
+                for path in &cleanup_files {
                     let _ = std::fs::remove_file(path);
                 }
                 return Err("missing stdout/stderr pipe after spawn".to_string());
@@ -1671,7 +1822,7 @@ pub async fn send_message_inner(
         initial_model,
         child,
         killed,
-        cleanup_files: launch.built.cleanup_files,
+        cleanup_files,
         stderr_buf,
     };
     let reader = tokio::spawn(run_reader(stdout, ctx));
@@ -1728,13 +1879,19 @@ async fn send_host_stream(
         run_id: run_id.clone(),
     };
     let resume_session_id = launch.req.session_id.clone();
-    let task = tokio::spawn(dsh_session::run_host_turn(
-        core,
-        launch.req,
-        state.dsh_host.clone(),
-        killed,
-        pid,
-    ));
+    let task = match engine.as_str() {
+        "dsh" => tokio::spawn(dsh_session::run_host_turn(
+            core,
+            launch.req,
+            state.dsh_host.clone(),
+            killed,
+            pid,
+        )),
+        "qoder" | "qoder-cn" => tokio::spawn(qoder_session::run_acp_turn(
+            core, launch.req, launch.bin, killed, pid,
+        )),
+        _ => unreachable!("send_host_stream only routes drives_own_transport engines: {engine}"),
+    };
     let _ = reader_abort.set(task.abort_handle());
     Ok(SendResult {
         run_id,
@@ -1988,6 +2145,57 @@ mod permission_tests {
     }
 
     #[test]
+    fn omp_offers_plan_and_bypass_while_pi_stays_auto() {
+        // omp 18.1.x grew real approval switches plus a headless plan flow; pi
+        // 0.85 still exposes none of them. Declaring only the modes a CLI can
+        // actually honor is the whole point of supported_permissions — the
+        // picker greys out the rest instead of sending a mode that is ignored.
+        assert_eq!(pi_family::omp().supported_permissions(), ["auto", "plan", "bypass"]);
+        assert_eq!(pi_family::pi().supported_permissions(), ["auto"]);
+
+        // "manual" must stay unsupported: always-ask/write leave write/exec
+        // tools on a prompt policy, and print mode has no UI to answer with —
+        // the CLI aborts the turn ("requires approval but no interactive UI
+        // available") the moment a gated tool runs.
+        assert_eq!(pi_family::omp().resolve_permission(Some("manual")), "auto");
+        // pi falls back to its only mode for anything else.
+        assert_eq!(pi_family::pi().resolve_permission(Some("bypass")), "auto");
+
+        let auto = argv(&pi_family::omp(), &req(Some("auto")));
+        assert!(!auto.contains(&"--approval-mode".to_string()));
+        assert!(!auto.contains(&"--auto-approve".to_string()));
+        assert!(!auto.contains(&"--plan-yolo".to_string()));
+
+        let bypass = argv(&pi_family::omp(), &req(Some("bypass")));
+        assert!(bypass.contains(&"--auto-approve".to_string()));
+        assert!(!bypass.contains(&"--plan-yolo".to_string()));
+
+        // The plan flow pins the implementation phase to the picked model;
+        // otherwise --plan-yolo-into drops to the cheap "smol" role.
+        let mut plan_req = req(Some("plan"));
+        plan_req.model = Some("openai-codex/gpt-5.4".into());
+        let plan = argv(&pi_family::omp(), &plan_req);
+        assert!(plan.contains(&"--plan-yolo".to_string()));
+        let pin = plan
+            .iter()
+            .position(|a| a == "--plan-yolo-into")
+            .expect("plan pins the implementation model");
+        assert_eq!(plan[pin + 1], "openai-codex/gpt-5.4");
+
+        // No model picked yet: --plan-yolo alone must not invent one.
+        let bare = argv(&pi_family::omp(), &req(Some("plan")));
+        assert!(bare.contains(&"--plan-yolo".to_string()));
+        assert!(!bare.contains(&"--plan-yolo-into".to_string()));
+
+        // pi never receives any of these flags, even when it is asked for one.
+        for mode in [Some("plan"), Some("bypass"), Some("manual")] {
+            let args = argv(&pi_family::pi(), &req(mode));
+            assert!(!args.contains(&"--plan-yolo".to_string()), "{args:?}");
+            assert!(!args.contains(&"--auto-approve".to_string()), "{args:?}");
+        }
+    }
+
+    #[test]
     fn claude_passes_granted_dirs_as_add_dir() {
         let e = claude::ClaudeEngine::new();
         let mut r = req(Some("auto"));
@@ -2022,6 +2230,109 @@ mod permission_tests {
             None,
         ] {
             assert!(argv(&e, &req(mode)).contains(&"--always-approve".to_string()));
+        }
+    }
+}
+
+#[cfg(test)]
+mod retry_lifecycle_tests {
+    use super::*;
+
+    #[derive(Default)]
+    struct CollectingEmitter(Mutex<Vec<Value>>);
+
+    impl event_sink::Emit for CollectingEmitter {
+        fn emit_json(&self, _name: &str, raw_json: &str) {
+            self.0.lock().unwrap().extend(serde_json::from_str::<Vec<Value>>(raw_json).unwrap());
+        }
+    }
+
+    #[tokio::test]
+    async fn terminal_error_cannot_be_followed_by_live_retry_events() {
+        let emitter = Arc::new(CollectingEmitter::default());
+        let core = TurnCore {
+            sink: event_sink::EventSink::new(emitter.clone()),
+            registry: Arc::new(ProcessRegistry::default()),
+            engine_id: "omp".to_string(),
+            run_id: "settled-run".to_string(),
+        };
+        let mut state = TurnState::new(Some("session".to_string()));
+        for event in [
+            EngineEvent::Error("retry exhausted".to_string()),
+            EngineEvent::Retry { attempt: 1, max: 50, message: "socket closed".to_string() },
+            EngineEvent::Warn("late request error".to_string()),
+            EngineEvent::Done { session_id: None, usage: None },
+        ] {
+            core.dispatch_event(&mut state, event);
+        }
+        core.sink.flush();
+        let events = emitter.0.lock().unwrap();
+        let kinds: Vec<_> = events.iter().map(|event| event["kind"].as_str().unwrap()).collect();
+        assert_eq!(kinds, ["error"], "a settled run must not send live events");
+    }
+
+    async fn replay_cli_output(lines: &[Value]) -> Vec<Value> {
+        let path = std::env::temp_dir().join(format!("ccgui-retry-{}.jsonl", uuid::Uuid::new_v4()));
+        let mut text = lines.iter().map(Value::to_string).collect::<Vec<_>>().join("\n");
+        text.push('\n');
+        std::fs::write(&path, text).unwrap();
+        let mut command = tokio::process::Command::new(if cfg!(windows) { "cmd" } else { "cat" });
+        if cfg!(windows) {
+            command.args(["/d", "/c", "type"]);
+        }
+        let mut child = command.arg(&path)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn().unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let emitter = Arc::new(CollectingEmitter::default());
+        let ctx = RunContext {
+            core: TurnCore {
+                sink: event_sink::EventSink::new(emitter.clone()),
+                registry: Arc::new(ProcessRegistry::default()),
+                engine_id: "omp".to_string(),
+                run_id: "pipe-retry-run".to_string(),
+            },
+            engine_impl: Box::new(pi_family::omp()),
+            pid: child.id().unwrap(),
+            preassigned_session_id: Some("session".to_string()),
+            initial_model: None,
+            child: Arc::new(TokioMutex::new(child)),
+            killed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            cleanup_files: vec![path],
+            stderr_buf: Arc::new(Mutex::new(String::new())),
+        };
+        run_reader(stdout, ctx).await;
+        let events = std::mem::take(&mut *emitter.0.lock().unwrap());
+        events
+    }
+
+    #[tokio::test]
+    async fn legacy_agent_end_can_retry_and_recover_before_eof() {
+        let events = replay_cli_output(&[
+            serde_json::json!({"type":"turn_end","message":{"role":"assistant","stopReason":"error","errorMessage":"socket closed"}}),
+            serde_json::json!({"type":"agent_end","messages":[{"role":"assistant","stopReason":"error","errorMessage":"socket closed"}]}),
+            serde_json::json!({"type":"auto_retry_start","attempt":1,"maxAttempts":50}),
+            serde_json::json!({"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"recovered"}}),
+            serde_json::json!({"type":"turn_end","message":{"role":"assistant","stopReason":"stop"}}),
+            serde_json::json!({"type":"agent_end","messages":[{"role":"assistant","stopReason":"stop"}]}),
+        ]).await;
+        let kinds: Vec<_> = events.iter().map(|event| event["kind"].as_str().unwrap()).collect();
+        assert_eq!(kinds, ["retry", "delta", "done"]);
+        assert_eq!(events[1]["data"], "recovered");
+    }
+
+    #[tokio::test]
+    async fn clean_eof_preserves_a_final_model_failure() {
+        for failure in [
+            serde_json::json!({"type":"turn_end","message":{"role":"assistant","stopReason":"error","errorMessage":"401 Invalid token"}}),
+            serde_json::json!({"type":"auto_retry_end","success":false,"finalError":"socket closed"}),
+        ] {
+            let events = replay_cli_output(&[failure]).await;
+            let last = events.last().unwrap();
+            assert_eq!(last["kind"], "error", "clean process exit must not turn a failed request into success");
+            assert!(matches!(last["data"].as_str(), Some("401 Invalid token" | "socket closed")));
+            assert!(!events.iter().any(|event| event["kind"] == "done"));
         }
     }
 }

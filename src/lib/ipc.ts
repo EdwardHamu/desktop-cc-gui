@@ -22,8 +22,13 @@ export interface SessionMeta {
    * it never sent one — see ipc.rememberSessionModel. */
   model?: string | null;
   /** Reasoning effort this app last sent for the session, absent when it never
-   * recorded one — see ipc.rememberSessionEffort. */
+   *  recorded one — see ipc.rememberSessionEffort. */
   effort?: string | null;
+  /** No local transcript (plugin session source, e.g. a WSL distro CLI):
+   *  history replay routes through load_remote_session_page instead. */
+  remote?: boolean;
+  /** Absolute path of the transcript inside the distro (remote rows only). */
+  remotePath?: string;
 }
 
 export type TodoStatus = "pending" | "active" | "complete" | "blocked" | "dropped";
@@ -88,6 +93,10 @@ export interface Workspace {
   sortOrder: number | null;
   /** Sidebar group id (工作区分组); null = ungrouped. */
   groupId: string | null;
+  /** Opaque per-workspace metadata written by host-capability callers
+   *  (e.g. { wsl: { hostId, distro } } from the wsl plugin); absent for
+   *  ordinary directories. */
+  meta?: Record<string, unknown>;
 }
 
 export interface EngineInfo {
@@ -124,6 +133,12 @@ export interface EngineCatalog {
    * lists (claude), which may be partial.
    */
   authoritative: boolean;
+  /**
+   * True for a remote workspace (WSL distro) catalog: the local provider
+   * channel and custom models are NOT runnable there, so the picker must
+   * not merge them — only `models` is selectable.
+   */
+  remote?: boolean;
 }
 
 export interface SendResult {
@@ -175,6 +190,9 @@ export interface CliConfig {
   omp: ProviderSection;
   dsh: ProviderSection;
   agy: ProviderSection;
+  opencode: ProviderSection;
+  qoder: ProviderSection;
+  "qoder-cn": ProviderSection;
 }
 
 export interface AppSettings {
@@ -195,6 +213,9 @@ export interface AppSettings {
   ompBin: string | null;
   dshBin: string | null;
   agyBin: string | null;
+  opencodeBin: string | null;
+  qoderBin: string | null;
+  qoderCnBin: string | null;
   defaultModels: Record<string, string>;
   /** Per-engine user-added custom model ids (设置 → CLI → 自定义模型). */
   customModels: Record<string, string[]>;
@@ -208,6 +229,21 @@ export interface AppSettings {
   sidebarThreadLimit: number;
   /** Composer send gesture: "enter" (Enter sends) or "cmdEnter" (⌘/Ctrl+Enter sends). */
   composerSendShortcut: string;
+  /** Keyboard shortcuts (快捷键), format "cmd+ctrl+alt+shift+key" lowercase;
+   *  null = unbound. Defaults live in src/features/shortcuts/actions.ts;
+   *  interruptShortcut null = platform default (mac ctrl+c, win ctrl+shift+c). */
+  newSessionShortcut?: string | null;
+  interruptShortcut?: string | null;
+  commandPaletteShortcut?: string | null;
+  sidebarSearchShortcut?: string | null;
+  toggleTerminalShortcut?: string | null;
+  toggleSidebarShortcut?: string | null;
+  toggleSidePanelShortcut?: string | null;
+  saveFileShortcut?: string | null;
+  openSettingsShortcut?: string | null;
+  increaseUiScaleShortcut?: string | null;
+  decreaseUiScaleShortcut?: string | null;
+  resetUiScaleShortcut?: string | null;
   /** Thinking-process row behavior once its thinking settles: true/absent =
    *  auto-fold (default), false = stay expanded until the user folds it. */
   thinkingAutoCollapse?: boolean | null;
@@ -246,6 +282,10 @@ export interface FileContent {
   text: string | null;
   dataUrl: string | null;
   truncated: boolean;
+  /** Served by a remote reader (e.g. WSL distro, features/files/remote-files):
+   *  content is complete but writes are unsupported, so the editor stays
+   *  read-only — distinct from `truncated`, which means partial content. */
+  readOnly?: boolean;
 }
 /** Result of `duplicate_item` / `paste_item`: the created destination. */
 export interface FileOpResult {
@@ -526,6 +566,9 @@ export interface MarketPlugin {
   minAppVersion: string | null;
   sdkVersion: string | null;
   permissions: string[];
+  /** Lifetime download count from the index stats bot; null when the
+   *  stats file is unavailable — decorative, never gates anything. */
+  downloads: number | null;
 }
 
 /** One installed marketplace plugin with a newer indexed version. */
@@ -637,8 +680,10 @@ export const ipc = {
    * new paths (same order). Picked paths live outside the sandbox, so the
    * engines' path-based image pipeline cannot read them in place. */
   importAttachments: (paths: string[]) => invoke<string[]>("import_attachments", { paths }),
-  listEngineModels: (engine: string) =>
-    invoke<EngineCatalog>("list_engine_models", { engine }),
+  listEngineModels: (engine: string, workspace?: string) =>
+    withGrantRetry(() =>
+      invoke<EngineCatalog>("list_engine_models", { engine, workspace: workspace ?? null }),
+    ),
   // history
   listSessions: () => invoke<SessionMeta[]>("list_sessions"),
   loadSessionPage: (
@@ -647,6 +692,24 @@ export const ipc = {
     limit?: number,
     beforeSeq?: number | null,
   ) => invoke<SessionPage>("load_session_page", { engine, sessionId, limit, beforeSeq }),
+  /** Remote (WSL distro) transcript: host fetches the jsonl over the ssh
+   *  channel, caches it locally, and parses with the same engine reader. */
+  loadRemoteSessionPage: (
+    workspacePath: string,
+    engine: string,
+    sessionId: string,
+    remotePath: string,
+    limit?: number,
+    beforeSeq?: number | null,
+  ) =>
+    invoke<SessionPage>("load_remote_session_page", {
+      workspacePath,
+      engine,
+      sessionId,
+      remotePath,
+      limit,
+      beforeSeq,
+    }),
   deleteSession: (engine: string, sessionId: string) =>
     invoke<void>("delete_session", { engine, sessionId }),
   pinSession: (engine: string, sessionId: string, pinned: boolean) =>
@@ -664,7 +727,14 @@ export const ipc = {
     invoke<void>("remember_session_effort", { engine, sessionId, effort }),
   rescanSessions: () => invoke<void>("rescan_sessions"),
   listWorkspaces: () => invoke<Workspace[]>("list_workspaces"),
-  addWorkspace: (path: string) => invoke<Workspace>("add_workspace", { path }),
+  addWorkspace: (path: string, meta?: Record<string, unknown>) =>
+    invoke<Workspace>("add_workspace", { path, meta: meta ?? null }),
+  /** Plugin-scoped workspace registration: the Rust side re-checks the
+   *  plugin's manifest grants (host:workspace; meta.wsl additionally needs
+   *  host:workspace:remote) — the server-side counterpart of the JS gate in
+   *  plugins/runtime/context.ts. pluginId is injected by the host bridge. */
+  pluginAddWorkspace: (pluginId: string, path: string, meta?: Record<string, unknown>) =>
+    invoke<Workspace>("plugin_add_workspace", { pluginId, path, meta: meta ?? null }),
   reorderWorkspaces: (ids: string[]) => invoke<void>("reorder_workspaces", { ids }),
   removeWorkspace: (id: string) => invoke<void>("remove_workspace", { id }),
   setWorkspaceGroup: (id: string, groupId: string | null) =>
