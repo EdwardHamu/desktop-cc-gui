@@ -16,6 +16,7 @@ import { useMediaQuery } from "@/hooks/use-media-query";
 import { useLayoutPanels } from "./use-layout-panels";
 import { commandRegistry } from "@ccgui/plugin-sdk";
 import { keywords } from "@/features/commands/builtins";
+import { registerShortcutHandler } from "@/features/shortcuts/runtime";
 import { useChatTabs } from "./use-chat-tabs";
 import { useChatSidebar } from "./use-chat-sidebar";
 import { ChatPageDialogs, type ChatPageDialog } from "./ChatPageDialogs";
@@ -198,23 +199,26 @@ export default function ChatPage() {
   useEffect(() => {
     if (active?.workspacePath) void gitRefresh(active.workspacePath);
   }, [active?.workspacePath, gitRefresh]);
-  // ⌘J / Ctrl+J toggles the terminal dock for the active workspace.
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (
-        (e.metaKey || e.ctrlKey) &&
-        !e.shiftKey &&
-        !e.altKey &&
-        e.key.toLowerCase() === "j"
-      ) {
-        if (!active) return;
-        e.preventDefault();
-        toggleTerminal(active.workspacePath);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [active, toggleTerminal]);
+  // Terminal toggle + new-session + interrupt keys live in the shortcut
+  // runtime (defaults ⌘J / ⌘N / ⌃C, configurable in Settings → Shortcuts).
+  useEffect(
+    () =>
+      registerShortcutHandler("toggleTerminal", () => {
+        if (active) toggleTerminal(active.workspacePath);
+      }),
+    [active, toggleTerminal],
+  );
+  useEffect(
+    () => registerShortcutHandler("newSession", handleNewSession),
+    [handleNewSession],
+  );
+  useEffect(
+    () =>
+      registerShortcutHandler("interrupt", () => {
+        void useChatStore.getState().interrupt();
+      }),
+    [],
+  );
 
   return (
     <div

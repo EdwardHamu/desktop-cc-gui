@@ -4,6 +4,7 @@ import type { MouseEvent as ReactMouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { WorkspaceMenuState } from "@/components/application/ai-chat/workspace-context-menu";
 import type { AiChatRepo, AiChatRepoSection } from "./ai-chat-sidebar";
+import { registerShortcutHandler } from "@/features/shortcuts/runtime";
 
 /**
  * AiChatSidebar state hooks: quick search (⌘L), persisted workspace
@@ -158,16 +159,12 @@ export function useSidebarSearch() {
     return () => window.cancelAnimationFrame(frame);
   }, [searchActive]);
 
-  useEffect(() => {
-    const onShortcut = (event: KeyboardEvent) => {
-      if (event.key.toLocaleLowerCase() === "l" && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        activateSearch();
-      }
-    };
-    window.addEventListener("keydown", onShortcut);
-    return () => window.removeEventListener("keydown", onShortcut);
-  }, [activateSearch]);
+  // Activation key lives in the shortcut runtime (default ⌘L, configurable
+  // in Settings → Shortcuts).
+  useEffect(
+    () => registerShortcutHandler("sidebarSearch", activateSearch),
+    [activateSearch],
+  );
 
   return {
     searchActive,

@@ -214,6 +214,21 @@ export interface AppSettings {
   sidebarThreadLimit: number;
   /** Composer send gesture: "enter" (Enter sends) or "cmdEnter" (⌘/Ctrl+Enter sends). */
   composerSendShortcut: string;
+  /** Keyboard shortcuts (快捷键), format "cmd+ctrl+alt+shift+key" lowercase;
+   *  null = unbound. Defaults live in src/features/shortcuts/actions.ts;
+   *  interruptShortcut null = platform default (mac ctrl+c, win ctrl+shift+c). */
+  newSessionShortcut?: string | null;
+  interruptShortcut?: string | null;
+  commandPaletteShortcut?: string | null;
+  sidebarSearchShortcut?: string | null;
+  toggleTerminalShortcut?: string | null;
+  toggleSidebarShortcut?: string | null;
+  toggleSidePanelShortcut?: string | null;
+  saveFileShortcut?: string | null;
+  openSettingsShortcut?: string | null;
+  increaseUiScaleShortcut?: string | null;
+  decreaseUiScaleShortcut?: string | null;
+  resetUiScaleShortcut?: string | null;
   /** Thinking-process row behavior once its thinking settles: true/absent =
    *  auto-fold (default), false = stay expanded until the user folds it. */
   thinkingAutoCollapse?: boolean | null;
