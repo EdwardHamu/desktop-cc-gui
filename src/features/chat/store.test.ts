@@ -11,6 +11,7 @@ vi.mock("@/lib/ipc", () => ({
     rememberSessionModel: vi.fn(async () => {}),
     rememberSessionEffort: vi.fn(async () => {}),
     loadSessionPage: vi.fn(async () => ({ messages: [], nextBefore: null, subagentHistory: [] })),
+    loadRemoteSessionPage: vi.fn(async () => ({ messages: [], nextBefore: null, subagentHistory: [] })),
     getAppSettings: vi.fn(async () => ({})),
     updateAppSettings: vi.fn(async () => {}),
     rescanSessions: vi.fn(async () => {}),
@@ -203,6 +204,49 @@ describe("compactContext and refreshSessionUsage", () => {
 
     expect(ipc.loadSessionPage).toHaveBeenCalledWith("claude", "sess-compact", 100);
     expect(useChatStore.getState().bySession[key]?.usage).toEqual(mockUsage);
+  });
+
+  it("loadHistoryPage routes remote metas through loadRemoteSessionPage", async () => {
+    useChatStore.setState({
+      sessions: [
+        {
+          engine: "codex",
+          sessionId: "remote-1",
+          workspacePath: WS,
+          filePath: "",
+          fileSize: 0,
+          fileMtimeMs: 0,
+          title: "remote",
+          preview: "",
+          createdAt: null,
+          updatedAt: null,
+          messageCount: 0,
+          pinned: false,
+          customTitle: null,
+          remote: true,
+          remotePath: "/home/u/x.jsonl",
+        } as any,
+      ],
+    });
+    await useChatStore.getState().selectSession("codex", "remote-1", WS);
+    expect(ipc.loadRemoteSessionPage).toHaveBeenCalledWith(WS, "codex", "remote-1", "/home/u/x.jsonl", 100, undefined);
+    expect(ipc.loadSessionPage).not.toHaveBeenCalledWith("codex", "remote-1", 100);
+  });
+
+  it("pinModels(updates, false) 只更新内存 models,不触碰 persisted 默认", async () => {
+    vi.mocked(ipc.updateAppSettings).mockClear();
+    await useChatStore.getState().pinModels({ omp: "remote-only-model" }, false);
+    expect(useChatStore.getState().models.omp).toBe("remote-only-model");
+    expect(ipc.updateAppSettings).not.toHaveBeenCalled();
+  });
+
+  it("pinModels 默认 persist:写 settings.defaultModels", async () => {
+    vi.mocked(ipc.updateAppSettings).mockClear();
+    await useChatStore.getState().pinModels({ omp: "m1" });
+    expect(useChatStore.getState().models.omp).toBe("m1");
+    expect(ipc.updateAppSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ defaultModels: expect.objectContaining({ omp: "m1" }) }),
+    );
   });
 
   it("compactContext sends /compact and invokes refreshSessionUsage after compaction finishes", async () => {

@@ -5,6 +5,7 @@ import type {
   WorkspaceGroup,
 } from "@/lib/ipc";
 import { EMPTY_SESSION, type SessionState } from "./stream";
+import { sessionKey } from "./persistence";
 import type { ChatStore } from "./types";
 
 /** Sidebar workspace groups (工作区二级分类), ordered by sortOrder then name. */
@@ -32,6 +33,27 @@ export function visibleSessions(
     if (e.enabled) enabled.add(e.id);
   }
   return sessions.filter((s) => enabled.has(s.engine));
+}
+
+/** Merge plugin-sourced external sessions under the local scan: local wins
+ *  on the same engine/sessionId/workspacePath, rows outside registered
+ *  workspaces are dropped (the sidebar groups by workspacePath). */
+export function mergeExternalSessions(
+  local: SessionMeta[],
+  external: SessionMeta[],
+  workspacePaths: Iterable<string>,
+): SessionMeta[] {
+  if (external.length === 0) return local;
+  const known = new Set(workspacePaths);
+  const seen = new Set(
+    local.map((s) => sessionKey(s.engine, s.sessionId, s.workspacePath)),
+  );
+  const extra = external.filter(
+    (e) =>
+      known.has(e.workspacePath) &&
+      !seen.has(sessionKey(e.engine, e.sessionId, e.workspacePath)),
+  );
+  return extra.length === 0 ? local : [...local, ...extra];
 }
 
 /** Append committed timeline rows, assigning seq after the session's last

@@ -288,6 +288,11 @@ function RepoHeaderRow({
         >
           {repo.label}
         </span>
+        {repo.labelSuffix && (
+          <span className="ws-label-badge ml-1.5 shrink-0">
+            {repo.labelSuffix}
+          </span>
+        )}
       </button>
       {hasHoverActions && (
         <span className="ml-auto hidden shrink-0 items-center gap-1.5 group-hover:inline-flex">
