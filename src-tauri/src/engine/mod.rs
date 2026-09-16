@@ -2050,9 +2050,13 @@ mod permission_tests {
         assert!(auto.contains(&"--permission-mode".to_string()));
         assert!(auto.contains(&"acceptEdits".to_string()));
         assert!(!auto.contains(&"--dangerously-skip-permissions".to_string()));
+        // Headless cannot prompt: auto pre-approves the read-only network
+        // tools acceptEdits does not cover, or every web call is denied.
+        assert!(auto.windows(3).any(|w| w == ["--allowedTools", "WebSearch", "WebFetch"]));
 
         let manual = argv(&e, &req(Some("manual")));
         assert!(manual.contains(&"default".to_string()));
+        assert!(!manual.contains(&"--allowedTools".to_string()));
 
         let plan = argv(&e, &req(Some("plan")));
         assert!(plan.contains(&"plan".to_string()));
