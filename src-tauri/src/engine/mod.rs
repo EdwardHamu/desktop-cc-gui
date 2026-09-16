@@ -3,6 +3,8 @@ pub mod claude;
 pub mod codex;
 mod codex_provider_env;
 mod codex_usage;
+#[cfg(windows)]
+pub(crate) mod job;
 pub mod dsh;
 mod dsh_session;
 pub mod grok;
@@ -1187,6 +1189,10 @@ struct RunContext {
     killed: Arc<std::sync::atomic::AtomicBool>,
     cleanup_files: Vec<PathBuf>,
     stderr_buf: Arc<Mutex<String>>,
+    /// Kill-on-close job guard: drops with this context at settle, sweeping
+    /// any grandchild the CLI orphaned (Windows pwsh.exe/conhost.exe).
+    #[cfg(windows)]
+    _tree_guard: Option<Arc<job::KillOnCloseJob>>,
 }
 
 /// Event-routing core shared by process runs ([`RunContext`]) and virtual
@@ -1537,6 +1543,16 @@ async fn run_reader(stdout: ChildStdout, ctx: RunContext) {
         let mut guard = ctx.child.lock().await;
         guard.wait().await.ok()
     };
+    // Unix mirror of the Windows kill-on-close job guard: grandchildren the
+    // CLI orphaned (background shells that outlived the turn) are still in
+    // the run's process group — sweep them so a settled turn leaks nothing.
+    // Clean exit → empty group → ESRCH no-op; a pid-reuse hit would need a
+    // fresh process to take the just-reaped pid AND lead a new group within
+    // microseconds. pid 0 is never signalled: kill(0, …) targets OUR group.
+    #[cfg(unix)]
+    if ctx.pid != 0 {
+        kill_process_group(ctx.pid);
+    }
     for path in &ctx.cleanup_files {
         let _ = std::fs::remove_file(path);
     }
@@ -1754,6 +1770,11 @@ pub async fn send_message_inner(
     spawn_stdin_writer(&mut child, launch.built.stdin_payload);
 
     let run_id = uuid::Uuid::new_v4().to_string();
+    // Join a kill-on-close job before the run can settle: an orphaned
+    // grandchild (claude's pwsh.exe/conhost.exe) must die with the run's
+    // context, not accumulate outside every tree taskkill can still walk.
+    #[cfg(windows)]
+    let tree_guard = job::assign_kill_on_close(&child);
     let pid = child.id().unwrap_or(0);
     // Detach both pipes while we still own the child outright. A missing pipe
     // after spawn is fatal: kill the child so it cannot run unobserved and
@@ -1824,6 +1845,8 @@ pub async fn send_message_inner(
         killed,
         cleanup_files,
         stderr_buf,
+        #[cfg(windows)]
+        _tree_guard: tree_guard,
     };
     let reader = tokio::spawn(run_reader(stdout, ctx));
     // Registration order is unchanged (entries land before the task can
