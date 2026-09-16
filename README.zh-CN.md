@@ -7,8 +7,7 @@
 [English](./README.md) · **简体中文**
 
 <a href="https://trendshift.io/repositories/25546" target="_blank"><img src="https://trendshift.io/api/badge/repositories/25546" alt="zhukunpenglinyutong%2Fdesktop-cc-gui | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-
-[![AtomGit](https://atomgit.com/zhukunpenglinyutong/idea-claude-code-gui/star/new_badge.svg)](https://atomgit.com/zhukunpenglinyutong/idea-claude-code-gui)
+<a href="https://atomgit.com/zhukunpenglinyutong/desktop-cc-gui" target="_blank"><img src="https://atomgit.com/zhukunpenglinyutong/desktop-cc-gui/star/new_badge.svg" alt="AtomGit G-Star" width="250" height="54"/></a>
 
 ![][github-contributors-shield] ![][github-forks-shield] ![][github-stars-shield] ![][github-issues-shield]
 
@@ -251,9 +250,9 @@ perf(chat): reveal streamed text per frame without reparsing markdown
 
 感谢 [LINUX DO](https://linux.do/) 用户的支持与反馈。
 
-[AtomGit](https://atomgit.com/zhukunpenglinyutong/idea-claude-code-gui)：在国内托管本项目，帮助中国大陆用户更快访问项目与下载 Release。
+[AtomGit](https://atomgit.com/zhukunpenglinyutong/desktop-cc-gui)：在国内托管本项目，帮助中国大陆用户更快访问项目与下载 Release。
 
-感谢 [AtomGit](https://atomgit.com/zhukunpenglinyutong/idea-claude-code-gui) 平台 G-Star 认证
+感谢 [AtomGit](https://atomgit.com/zhukunpenglinyutong/desktop-cc-gui) 平台 G-Star 认证
 
 ---
 
