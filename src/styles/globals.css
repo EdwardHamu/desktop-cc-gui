@@ -418,3 +418,48 @@ input[type="password"]::-ms-reveal,
 input[type="password"]::-ms-clear {
   display: none;
 }
+
+/* ---------------------------------------------------------------------------
+ * Frosted floating surfaces (fork)
+ *
+ * Opt-in translucency for layers that float over content — dropdown / select
+ * panels, popovers, tooltips. Tokens live in theme.css (--color-surface-frosted*,
+ * --blur-frosted) so light/dark are handled by the same cascade as every other
+ * semantic colour.
+ *
+ * Deliberately NOT applied to the app canvas, the sidebar or message rows:
+ * backdrop-filter forces those subtrees onto their own composited layer, and
+ * on a scrolling chat transcript that costs far more than it looks worth.
+ * ------------------------------------------------------------------------- */
+
+/* Fallback first: browsers (or GPU blocklists) without backdrop-filter get the
+ * opaque token, so a floating panel is never unreadably transparent. */
+.surface-frosted {
+  background-color: var(--color-background-primary-default);
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .surface-frosted {
+    background-color: var(--color-surface-frosted);
+    -webkit-backdrop-filter: blur(var(--blur-frosted)) saturate(180%);
+    backdrop-filter: blur(var(--blur-frosted)) saturate(180%);
+  }
+
+  /* Denser variant for panels that carry dense text (command palette, menus
+   * over busy content) where the lighter alpha starts to hurt legibility. */
+  .surface-frosted-strong {
+    background-color: var(--color-surface-frosted-strong);
+    -webkit-backdrop-filter: blur(var(--blur-frosted)) saturate(180%);
+    backdrop-filter: blur(var(--blur-frosted)) saturate(180%);
+  }
+}
+
+.surface-frosted-strong {
+  background-color: var(--color-background-primary-default);
+}
+
+/* Hairline that reads against both themes; pairs with .surface-frosted on
+ * bordered panels. */
+.surface-frosted-edge {
+  border-color: var(--color-surface-frosted-border);
+}

@@ -15,7 +15,10 @@ const MENU_POPOVER_MOTION = [
 
 export const MENU_POPOVER_SURFACE = [
   "max-w-[calc(100vw-32px)] overflow-y-auto",
-  "rounded-2xl border border-border-button-default bg-background-primary-default p-2.5 shadow-dropdown",
+  "rounded-2xl border border-border-button-default p-2.5 shadow-dropdown",
+  // Frosted panel (globals.css): translucent + blurred over the canvas, with
+  // an opaque @supports fallback so it degrades to the old solid surface.
+  "surface-frosted",
   MENU_POPOVER_MOTION,
   "data-[placement=bottom]:origin-top-left data-[placement=top]:origin-bottom-left",
   "data-[placement=left]:origin-right data-[placement=right]:origin-left",
@@ -42,7 +45,8 @@ export function menuPopoverSurface({
 }): string {
   return [
     `${width} max-w-[calc(100vw-32px)] ${origin}`,
-    `${radius} border border-border-button-default bg-background-primary-default ${padding} shadow-dropdown`,
+    `${radius} border border-border-button-default ${padding} shadow-dropdown`,
+    "surface-frosted",
     MENU_POPOVER_MOTION,
   ].join(" ");
 }

@@ -216,6 +216,21 @@
    * shader's palette is fixed, so the scene it sits in is fixed too. */
   --color-effort-flame-wash: rgb(16 24 40 / 0.62);
 
+  /* ----- Frosted glass (fork) -------------------------------------------------
+   * Translucent surface for floating layers (dropdown/select/tooltip panels).
+   * Opt-in via the .surface-frosted utility in globals.css — the default
+   * opaque background/primary/default stays the baseline, so only layers that
+   * actually float over content pay the compositing cost.
+   *
+   * Alpha is tuned per theme: the light canvas needs a high-opacity white to
+   * keep body text at AA contrast, while the near-black dark canvas can carry
+   * a lower alpha before text starts to wash out.
+   * --------------------------------------------------------------------------*/
+  --color-surface-frosted:        rgb(255 255 255 / 0.82);
+  --color-surface-frosted-strong: rgb(255 255 255 / 0.92);
+  --color-surface-frosted-border: rgb(255 255 255 / 0.55);
+  --blur-frosted:                 16px;
+
   /* Sidebar session status dots (globals.css .sidebar-thread-status-*):
    * breathing blue while a turn streams, solid green for unseen activity. */
   --color-status-streaming: #2f80ed;
@@ -355,6 +370,13 @@
   --color-overlay-backdrop: rgb(0 0 0 / 0.6);
   /* Fixed-palette effect backdrop: same value as light, on purpose. */
   --color-effort-flame-wash: rgb(16 24 40 / 0.62);
+
+  /* Frosted surfaces invert to the graphite canvas. The border stays a light
+   * hairline (not a darker one): on near-black surfaces a bright 1px edge is
+   * what separates the floating panel from the canvas behind it. */
+  --color-surface-frosted:        rgb(28 28 28 / 0.78);
+  --color-surface-frosted-strong: rgb(28 28 28 / 0.90);
+  --color-surface-frosted-border: rgb(255 255 255 / 0.10);
 
   /* Sidebar status dots read brighter against the dark canvas. */
   --color-status-streaming: var(--color-blue-400);
@@ -554,6 +576,11 @@
   --color-bubble-user:      var(--color-bubble-user);
   --color-overlay-backdrop: var(--color-overlay-backdrop);
   --color-effort-flame-wash: var(--color-effort-flame-wash);
+
+  --color-surface-frosted:        var(--color-surface-frosted);
+  --color-surface-frosted-strong: var(--color-surface-frosted-strong);
+  --color-surface-frosted-border: var(--color-surface-frosted-border);
+  --blur-frosted:                 var(--blur-frosted);
 
   --color-border-button-default:   var(--color-border-button-default);
   --color-border-button-hover:     var(--color-border-button-hover);
