@@ -48,6 +48,7 @@ import {
   settleLiveRows,
   untrackRun,
 } from "./store/stream";
+import { mergeUsage } from "./usage";
 import {
   dropRunUsage,
   firstLineTitle,
@@ -1474,8 +1475,17 @@ export const useChatStore = create<ChatStore>((set, get) => {
     },
 
     deleteSession: async (engine, sessionId) => {
+      // 远程(插件会话源,如 WSL 发行版内 CLI)会话没有本地 db 行,本地
+      // delete_session 只会 "session not found";走远程通道删 remotePath。
+      const meta = get().sessions.find(
+        (x) => x.engine === engine && x.sessionId === sessionId,
+      );
       try {
-        await ipc.deleteSession(engine, sessionId);
+        if (meta?.remote && meta.remotePath) {
+          await ipc.deleteRemoteSession(meta.workspacePath, engine, meta.remotePath);
+        } else {
+          await ipc.deleteSession(engine, sessionId);
+        }
       } catch (error) {
         set({ actionError: errorText(error) });
         return;
@@ -1636,29 +1646,21 @@ export const useChatStore = create<ChatStore>((set, get) => {
       if (!before) return;
 
       try {
-        // A just-created session may not be indexed yet when done arrives.
-        void ipc.rescanSessions().catch(() => {});
-        for (let attempt = 0; attempt < 3; attempt++) {
-          if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
-          const isCurrent = () => {
-            const current = get().bySession[targetKey];
-            return current && current.usage === before.usage
-              && current.turnStartedAt === before.turnStartedAt
-              && current.messages === before.messages;
-          };
-          if (!isCurrent()) return;
-          try {
-            const page = await ipc.loadSessionPage(engine, sessionId, 100);
-            if (!isCurrent()) return;
-            const latestUsage = [...page.messages].reverse().find((m) => m.usage)?.usage;
-            // CLI history may flush after done. A successful read containing
-            // no new usage is not evidence that this turn has been persisted.
-            if (!latestUsage || JSON.stringify(latestUsage) === JSON.stringify(before.usage)) continue;
-            patchSession(set, targetKey, { usage: mergeUsage(latestUsage, before.usage) });
-            return;
-          } catch (error) {
-            if (attempt === 2) throw error;
-          }
+        const page = await loadHistoryPage(
+          engine,
+          sessionId,
+          targetTab?.workspacePath ?? "",
+          100,
+        );
+        const latestUsage =
+          [...page.messages].reverse().find((m) => m.usage)?.usage ?? null;
+        if (latestUsage) {
+          // The transcript carries the API's per-message usage and no window;
+          // only the live result line reports one. Keep the window already
+          // known for this session so the gauge holds its scale.
+          patchSession(set, targetKey, {
+            usage: mergeUsage(latestUsage, get().bySession[targetKey]?.usage),
+          });
         }
       } catch (error) {
         console.error("Failed to refresh session usage:", error);
