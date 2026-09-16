@@ -249,6 +249,8 @@ Not sure where to start? Browse the [Issues](https://github.com/zhukunpenglinyut
 
 Thanks for the support and feedback from the friends at [LINUX DO](https://linux.do/).
 
+Thank you for [AtomGit](https://atomgit.com/zhukunpenglinyutong/idea-claude-code-gui) platform G-Star certification
+
 ---
 
 ## Contributors

@@ -249,6 +249,8 @@ perf(chat): reveal streamed text per frame without reparsing markdown
 
 感谢 [LINUX DO](https://linux.do/) 用户的支持与反馈。
 
+感谢 [AtomGit](https://atomgit.com/zhukunpenglinyutong/idea-claude-code-gui) 平台 G-Star 认证
+
 ---
 
 ## 贡献者列表
