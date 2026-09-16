@@ -864,22 +864,68 @@ pub fn scan_with(db: &crate::db::Db, on_changed: impl Fn()) -> Result<ScanReport
 
 // ---------- phase helpers (each stage is lock-free except where noted) ----------
 
+/// Engines parked on the `__disabled__` pseudo-provider must not have their
+/// session directories projected into the sidebar: a disabled engine is one
+/// the user does not run, so scanning its data roots only burns readdir/IO
+/// budget and surfaces history for a CLI that cannot be launched
+/// (`config::ensure_engine_enabled` already refuses the send path).
+///
+/// Read once per scan and reused for every workspace: `read_config` hits the
+/// filesystem, and `gather_candidates` loops over all workspaces.
+fn disabled_engines() -> std::collections::HashSet<String> {
+    let Ok(config) = crate::config::read_config() else {
+        // Unreadable config must not silently hide history: fall back to
+        // scanning everything, matching the pre-gate behaviour.
+        return std::collections::HashSet::new();
+    };
+    crate::config::ENGINES
+        .iter()
+        .filter(|id| {
+            config.section(id).and_then(|s| s.current.as_deref())
+                == Some(crate::config::DISABLED_PROVIDER_ID)
+        })
+        .map(|id| (*id).to_string())
+        .collect()
+}
+
 /// Enumerate every candidate session file (readdir/index only, no content).
 fn gather_candidates(workspaces: &[String]) -> Vec<Candidate> {
     let mut candidates: Vec<Candidate> = Vec::new();
     let mut seen_paths: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+    let disabled = disabled_engines();
+    let enabled = |engine: &str| !disabled.contains(engine);
     for workspace_path in workspaces {
         let workspace = PathBuf::from(workspace_path);
         // Filename/index-keyed engines identify cheaply per workspace.
-        for file in discover_claude(&workspace)
-            .into_iter()
-            .chain(discover_kimi(&workspace))
-            .chain(discover_grok(&workspace))
-            .chain(discover_agy(&workspace))
-            .chain(discover_qoder(&workspace, crate::engine::qoder::QoderDistribution::Global))
-            .chain(discover_qoder(&workspace, crate::engine::qoder::QoderDistribution::Cn))
-            .chain(discover_opencode(&workspace))
-        {
+        let mut per_workspace: Vec<SessionFile> = Vec::new();
+        if enabled("claude") {
+            per_workspace.extend(discover_claude(&workspace));
+        }
+        if enabled("kimi") {
+            per_workspace.extend(discover_kimi(&workspace));
+        }
+        if enabled("grok") {
+            per_workspace.extend(discover_grok(&workspace));
+        }
+        if enabled("agy") {
+            per_workspace.extend(discover_agy(&workspace));
+        }
+        if enabled("qoder") {
+            per_workspace.extend(discover_qoder(
+                &workspace,
+                crate::engine::qoder::QoderDistribution::Global,
+            ));
+        }
+        if enabled("qoder-cn") {
+            per_workspace.extend(discover_qoder(
+                &workspace,
+                crate::engine::qoder::QoderDistribution::Cn,
+            ));
+        }
+        if enabled("opencode") {
+            per_workspace.extend(discover_opencode(&workspace));
+        }
+        for file in per_workspace {
             if seen_paths.insert(file.file_path.clone()) {
                 candidates.push(Candidate {
                     engine: file.engine,
@@ -897,6 +943,9 @@ fn gather_candidates(workspaces: &[String]) -> Vec<Candidate> {
         ("omp", pi_family_candidates(".omp")),
         ("dsh", dsh_candidates()),
     ] {
+        if !enabled(engine) {
+            continue;
+        }
         for path in paths {
             if seen_paths.insert(path.clone()) {
                 candidates.push(Candidate {
@@ -1760,6 +1809,101 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].engine, "opencode");
         assert_eq!(found[0].session_id, "ses_a");
+
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    /// Write ~/.ccgui-next/config.json parking `engine` on the 停用
+    /// pseudo-provider, mirroring what `set_engine_enabled(false)` persists.
+    fn write_disabled_engine_config(home: &Path, engine: &str) {
+        let app_home = home.join(".ccgui-next");
+        std::fs::create_dir_all(&app_home).unwrap();
+        let config = serde_json::json!({
+            engine: { "providers": {}, "current": "__disabled__" }
+        });
+        std::fs::write(
+            app_home.join("config.json"),
+            serde_json::to_string_pretty(&config).unwrap(),
+        )
+        .unwrap();
+    }
+
+    /// 停用 OpenCode 时其会话目录不再被投影：gather_candidates 跳过
+    /// discover_opencode，所以 sidebar 既不列出该引擎的历史，也不为它付出
+    /// readdir/IO 成本。
+    #[test]
+    fn gather_candidates_skips_disabled_opencode() {
+        let home = scratch_dir("gather-disabled-opencode");
+        let workspace = home.join("ws");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let project = home.join(".local/share/opencode/storage/session/b8119e41");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(
+            project.join("ses_a.json"),
+            serde_json::json!({
+                "id": "ses_a", "projectID": "b8119e41",
+                "directory": workspace.to_string_lossy(),
+                "title": "t", "time": {"created": 1, "updated": 2}
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let workspaces = vec![workspace.to_string_lossy().to_string()];
+        let _guard = HomeGuard::set(&home);
+
+        // Enabled (no config on disk): the session is discovered.
+        let before = gather_candidates(&workspaces);
+        assert!(
+            before.iter().any(|c| c.engine == "opencode"),
+            "opencode session should be projected while the engine is enabled"
+        );
+
+        // Disabled: the same scan must not project any opencode candidate.
+        write_disabled_engine_config(&home, "opencode");
+        let after = gather_candidates(&workspaces);
+        assert!(
+            !after.iter().any(|c| c.engine == "opencode"),
+            "disabled opencode must not be scanned"
+        );
+
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    /// The gate is generic over `config::ENGINES`, not hard-coded to
+    /// OpenCode: a disabled head-keyed engine (codex) is skipped too, while
+    /// the engines left enabled keep scanning.
+    #[test]
+    fn gather_candidates_skips_disabled_head_keyed_engine() {
+        let home = scratch_dir("gather-disabled-codex");
+        let workspace = home.join("ws");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let sessions = home
+            .join(".codex")
+            .join("sessions")
+            .join("2026")
+            .join("09")
+            .join("01");
+        std::fs::create_dir_all(&sessions).unwrap();
+        std::fs::write(sessions.join("rollout-ses_c.jsonl"), "{}\n").unwrap();
+
+        let workspaces = vec![workspace.to_string_lossy().to_string()];
+        let _guard = HomeGuard::set(&home);
+
+        assert!(
+            gather_candidates(&workspaces)
+                .iter()
+                .any(|c| c.engine == "codex"),
+            "codex rollout should be enumerated while enabled"
+        );
+
+        write_disabled_engine_config(&home, "codex");
+        assert!(
+            !gather_candidates(&workspaces)
+                .iter()
+                .any(|c| c.engine == "codex"),
+            "disabled codex must not be enumerated"
+        );
 
         std::fs::remove_dir_all(&home).ok();
     }
