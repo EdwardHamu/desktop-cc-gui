@@ -85,6 +85,10 @@ export interface PluginContext {
       danger?: boolean;
       run: (target: SessionMenuTarget) => void;
     }): Disposer;
+    /** 跳转到本插件的设置页（权限 `ui:settings-section`，0.3.6 起）。
+     *  `key` 对应 registerSettingsSection 的子 key，省略时打开主 section；
+     *  供状态栏 chip、面板按钮等做深链入口。 */
+    openSettings(key?: string): void;
     /** Markdown pipeline additions, merged over host defaults (plan §4.2 #5). */
     registerMarkdownRenderer(def: {
       key?: string;

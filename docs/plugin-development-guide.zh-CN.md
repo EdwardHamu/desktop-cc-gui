@@ -200,6 +200,7 @@ interface PluginContext {
     registerStatusBarItem(d: StatusBarItemDef): Disposer;
     registerCommand(d: CommandDef): Disposer;                   // 命令面板（⌘K）
     registerSessionMenuItem(d: SessionMenuItemDef): Disposer;   // 侧栏会话右键菜单追加行
+    openSettings(key?): void;                                   // 跳转到本插件设置页（0.3.6 起）
     registerMarkdownRenderer(d: MarkdownRendererDef): Disposer; // 自定义消息渲染组件
     registerPage(d: PageDef): Disposer;                         // 整页路由
   };

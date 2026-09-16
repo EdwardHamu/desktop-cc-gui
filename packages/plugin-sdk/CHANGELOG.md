@@ -1,5 +1,10 @@
 # @ccgui/plugin-sdk changelog
 
+## 0.3.6 — 2026-09-16
+- **新增能力**：`ctx.ui.openSettings(key?)`（复用权限 `ui:settings-section`）——跳转到
+  本插件的设置页（hash 路由 `#/settings?page=plugin:<id>[:<key>]`），供状态栏 chip、
+  面板按钮等做深链入口。首个消费者：auto-title 状态栏 chip 点击改跳设置页。
+
 ## 0.3.5 — 2026-09-16
 - **新增能力**：`ctx.ui.registerSessionMenuItem({ key?, label, icon?, danger?, run })`（权限
   `ui:session-menu`）——在侧栏会话右键菜单追加一行，`run` 收到打开菜单的会话

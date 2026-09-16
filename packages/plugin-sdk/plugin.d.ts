@@ -6,7 +6,7 @@
  * 插件仓用法（包未发布 npm 前的过渡方案）：复制本文件为插件仓的
  * `src/ccgui-plugin.d.ts`，首行版本戳必须与所用宿主 SDK 一致。
  *
- * @ccgui/plugin-sdk v0.3.5
+ * @ccgui/plugin-sdk v0.3.6
  */
 
 /** 宿主实现的 SDK 契约版本。 */
@@ -140,10 +140,14 @@ export interface PluginContext {
     registerSessionMenuItem(def: {
       key?: string;
       label: () => string;
-      icon?: ComponentLike<{ className?: string }>;
+      icon?: ComponentType<{ className?: string }>;
       danger?: boolean;
       run: (target: SessionMenuTarget) => void;
     }): Disposer;
+    /** 跳转到本插件的设置页（权限 `ui:settings-section`，0.3.6 起）。
+     *  `key` 对应 registerSettingsSection 的子 key，省略时打开主 section；
+     *  供状态栏 chip、面板按钮等做深链入口。 */
+    openSettings(key?: string): void;
     /** Markdown 渲染管线追加（权限 ui:markdown）。 */
     registerMarkdownRenderer(def: {
       key?: string;
