@@ -55,3 +55,50 @@
 ## 维护规则
 
 根文件只保留适用于本项目的高价值约定。新增规则应来自真实问题，合并重复项、删除失效内容；不要照搬其他技术栈、组织流程或不存在的文档链接。
+
+## Fork 治理约定（EdwardHamu fork）
+
+本仓库是 upstream `zhukunpenglinyutong/desktop-cc-gui` 的 fork，于 2026-09-16 重基到 upstream v1.0.3（`e125f8605`）。
+重基前的 fork 状态保存在 tag `backup/pre-upstream-rebase-20260916` 与分支 `backup/fork-main-20260916`。
+
+### 文档分层
+
+- **Project entry**：`AGENTS.md`（本文件）——只放规则优先级、最小读取路径、全局 gate、分层指针
+- **Implementation rules**：`dev-guidelines/**`——frontend / backend / guides 的具体实现规范
+- **Behavior specs**：`openspec/**`——proposal / design / tasks / spec delta 的 single source of truth
+- **Host adapter / runtime**：`.claude/**`、`.codex/**`、`.agents/skills/**`；`.omx/**` 等本地运行态目录**不是**规范事实源
+
+解释性文档与可入库设计稿统一放 `docs/**`（`guides` / `analysis` / `architecture` / `plans` / `research` / `reports`，入口 `docs/README.md`）；
+设计稿（HTML 原型、选款页、视觉 mock）放 `docs/designs/`，禁止放仓库根 `designs/` 或 `.artifacts/`。
+
+### PlanFirst
+
+- 任何代码、配置、规范落盘前，先给出 `PLAN` 或等价 OpenSpec artifact。
+- 若任务已进入 OpenSpec workflow，则以 OpenSpec artifact 作为 plan 载体。
+
+### Git Commit Message
+
+- 默认必须使用中文主体的 Conventional Commits：`type(scope): 中文动宾短句`。
+
+### Format Discipline Gate（格式化铁律）
+
+- **禁止无脑格式化**：任何格式化工具（prettier / rustfmt / eslint --fix / biome 等）只允许作用于**本次改动的文件**，且只允许**局部格式化**（本次编辑触及的 hunk 区域）。
+- 禁止对未改动文件做「顺手 fmt」；禁止以「让整个文件过 check」为由重排全文件。存量违规只能单独开纯格式提交修复，禁止混入业务提交。
+- 多 AI 并行是本仓库常态：全文件重排会把他人在途 hunk 裹进巨型 diff，制造冲突与 review 噪音。
+- 提交前自查 `git diff --stat`：改动行数远超实际编辑 = 混入格式化噪音，必须拆开。
+
+### Rust Format Gate
+
+- 改过的 `.rs` 提交前必须过 `rustfmt --edition 2021 --check <file>`。
+- 全仓 fmt / clippy sweep 按 Format Discipline Gate 视为禁止，除非用户显式拍板且单独开纯格式提交。
+
+### Merge Guardrails
+
+- 高风险文件冲突时，禁止整文件 `--ours` / `--theirs` 覆盖。
+- 必须先列 capability matrix，再做 semantic merge，并验证关键 symbol / tests / contract command。
+
+### 上游同步
+
+- 与 upstream 同步前先 `git fetch upstream`，用 `git merge-tree` 做非破坏性冲突预演，再决定合并策略。
+- upstream 已于 v1.0.x 重写架构（Tailwind v4 样式体系、pnpm workspace、`packages/plugin-sdk` 插件契约）；
+  fork 侧新功能一律在新架构落点重新实现，禁止回迁已删除的旧模块（`session_index` / `session_management` / `cc_gui_daemon` / 分散 CSS 文件）。
