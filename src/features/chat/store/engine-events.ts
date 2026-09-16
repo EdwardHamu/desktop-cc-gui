@@ -441,8 +441,12 @@ function onUsage(
 ) {
   const parsed = parseUsage(event.data);
   const totals = parsed ? addTurnUsage(event.runId, parsed) : null;
+  // A compaction report carries only the new occupancy, so the window is
+  // taken from the last snapshot that had one: the gauge must not drop to
+  // the assumed 200k just because this report is narrower (see mergeUsage).
+  const prev = deps.get().bySession[key]?.usage;
   patchSession(deps.set, key, {
-    usage: event.data,
+    usage: mergeUsage(event.data, prev),
     ...(totals ? { turnUsage: usageSnapshot(totals) } : {}),
   });
   if (parsed) recordUsageReport(deps, event, key, parsed);

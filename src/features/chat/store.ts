@@ -42,6 +42,7 @@ import {
   settleLiveRows,
   untrackRun,
 } from "./store/stream";
+import { mergeUsage } from "./usage";
 import {
   dropRunUsage,
   firstLineTitle,
@@ -1561,7 +1562,12 @@ export const useChatStore = create<ChatStore>((set, get) => {
         const latestUsage =
           [...page.messages].reverse().find((m) => m.usage)?.usage ?? null;
         if (latestUsage) {
-          patchSession(set, targetKey, { usage: latestUsage });
+          // The transcript carries the API's per-message usage and no window;
+          // only the live result line reports one. Keep the window already
+          // known for this session so the gauge holds its scale.
+          patchSession(set, targetKey, {
+            usage: mergeUsage(latestUsage, get().bySession[targetKey]?.usage),
+          });
         }
         void ipc.rescanSessions();
       } catch (error) {
