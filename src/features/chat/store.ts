@@ -1382,8 +1382,17 @@ export const useChatStore = create<ChatStore>((set, get) => {
     },
 
     deleteSession: async (engine, sessionId) => {
+      // 远程(插件会话源,如 WSL 发行版内 CLI)会话没有本地 db 行,本地
+      // delete_session 只会 "session not found";走远程通道删 remotePath。
+      const meta = get().sessions.find(
+        (x) => x.engine === engine && x.sessionId === sessionId,
+      );
       try {
-        await ipc.deleteSession(engine, sessionId);
+        if (meta?.remote && meta.remotePath) {
+          await ipc.deleteRemoteSession(meta.workspacePath, engine, meta.remotePath);
+        } else {
+          await ipc.deleteSession(engine, sessionId);
+        }
       } catch (error) {
         set({ actionError: errorText(error) });
         return;

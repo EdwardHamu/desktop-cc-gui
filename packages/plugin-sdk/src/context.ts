@@ -1,7 +1,7 @@
 import type { ComponentType } from "react";
 import type * as React from "react";
 import type { Disposer } from "./manifest";
-import type { ComposerSlotId } from "./registry";
+import type { ComposerSlotId, SessionMenuTarget } from "./registry";
 
 /**
  * PluginContext（plan §5.2）：插件唯一能力门面。宿主 runtime/context.ts
@@ -75,6 +75,15 @@ export interface PluginContext {
       title: () => string;
       keywords?: () => string[];
       run: () => void;
+    }): Disposer;
+    /** Sidebar session right-click menu row (permission `ui:session-menu`,
+     *  0.3.5 起)。`run` 收到打开菜单的会话 `{ engine, sessionId }`。 */
+    registerSessionMenuItem(def: {
+      key?: string;
+      label: () => string;
+      icon?: ComponentType<{ className?: string }>;
+      danger?: boolean;
+      run: (target: SessionMenuTarget) => void;
     }): Disposer;
     /** Markdown pipeline additions, merged over host defaults (plan §4.2 #5). */
     registerMarkdownRenderer(def: {

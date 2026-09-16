@@ -6,7 +6,7 @@
  * 插件仓用法（包未发布 npm 前的过渡方案）：复制本文件为插件仓的
  * `src/ccgui-plugin.d.ts`，首行版本戳必须与所用宿主 SDK 一致。
  *
- * @ccgui/plugin-sdk v0.3.4
+ * @ccgui/plugin-sdk v0.3.5
  */
 
 /** 宿主实现的 SDK 契约版本。 */
@@ -75,6 +75,12 @@ export interface PluginManifest {
 
 export type ComposerSlotId = "addMenu" | "cliMenu" | "permissionMenu";
 
+/** 侧栏会话右键菜单被打开时所在的会话行。 */
+export interface SessionMenuTarget {
+  engine: string;
+  sessionId: string;
+}
+
 export type ComponentLike<P = Record<string, never>> = (props: P) => unknown;
 
 /** 插件唯一能力门面（plan §5.2）。每个 register* 需要对应权限声明，
@@ -128,6 +134,15 @@ export interface PluginContext {
       title: () => string;
       keywords?: () => string[];
       run: () => void;
+    }): Disposer;
+    /** 侧栏会话右键菜单追加行（权限 ui:session-menu，0.3.5 起）；
+     *  run 收到打开菜单的会话。 */
+    registerSessionMenuItem(def: {
+      key?: string;
+      label: () => string;
+      icon?: ComponentLike<{ className?: string }>;
+      danger?: boolean;
+      run: (target: SessionMenuTarget) => void;
     }): Disposer;
     /** Markdown 渲染管线追加（权限 ui:markdown）。 */
     registerMarkdownRenderer(def: {
