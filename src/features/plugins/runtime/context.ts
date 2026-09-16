@@ -217,6 +217,11 @@ export function createPluginContext(
           }),
         );
       },
+      openSettings(key) {
+        requirePermission("ui:settings-section");
+        // 宿主是 hash 路由（见 features/commands/builtins.ts 的设置命令）。
+        window.location.hash = `#/settings?page=${scopedPluginId(id, key)}`;
+      },
       registerMarkdownRenderer(def) {
         requirePermission("ui:markdown");
         return track(
