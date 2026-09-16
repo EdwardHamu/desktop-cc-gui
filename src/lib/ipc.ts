@@ -1,6 +1,7 @@
 // Transport picks Tauri IPC natively and the web-access WS bridge in browsers.
 import { invoke } from "./transport";
 import { withGrantRetry } from "./grant";
+import type { WorkspaceWallpaperSettings } from "@/features/theme/workspaceWallpaper";
 
 // ==================== Shared types (mirror Rust serde camelCase) ====================
 
@@ -258,6 +259,9 @@ export interface AppSettings {
   dshAutoStart?: boolean | null;
   /** Global network proxy switch; spawned children inherit the proxy env. */
   systemProxyEnabled: boolean;
+  /** Workspace wallpaper (fork); absent = no wallpaper. See
+   *  src/features/theme/workspaceWallpaper.ts for the shape and defaults. */
+  workspaceWallpaper?: WorkspaceWallpaperSettings | null;
   /** Proxy URL (http/https/socks5); null = unset. */
   systemProxyUrl: string | null;
   /** Require a pairing key before the bridge serves a browser. */

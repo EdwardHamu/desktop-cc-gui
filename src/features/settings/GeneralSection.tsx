@@ -13,6 +13,8 @@ import {
 import { ipc, type AppSettings } from "@/lib/ipc";
 import { applyTheme } from "./theme";
 import { PromptHistoryManager, PromptHistoryToggleRow } from "./PromptHistorySettings";
+import { WallpaperSettings } from "./WallpaperSettings";
+import { resolveWorkspaceWallpaper } from "@/features/theme/workspaceWallpaper";
 import { useChatStore } from "@/features/chat/store";
 
 export const LANGUAGE_STORAGE_KEY = "ccgui-next.language";
@@ -149,6 +151,13 @@ export function GeneralSection() {
                 <SelectItem id="dark">{t("settings.themeDark")}</SelectItem>
               </Select>
             </SettingsRow>
+            <WallpaperSettings
+              value={resolveWorkspaceWallpaper(settings.workspaceWallpaper)}
+              onChange={(workspaceWallpaper) => {
+                setSettings({ ...settings, workspaceWallpaper });
+                void save({ workspaceWallpaper });
+              }}
+            />
             <SettingsRow label={t("settings.language")}>
               <Select
                 aria-label={t("settings.language")}

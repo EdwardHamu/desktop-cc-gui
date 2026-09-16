@@ -463,3 +463,66 @@ input[type="password"]::-ms-clear {
 .surface-frosted-edge {
   border-color: var(--color-surface-frosted-border);
 }
+
+/* ---------------------------------------------------------------------------
+ * Workspace wallpaper (fork)
+ *
+ * Fixed layer behind the whole shell. Only mounted when a wallpaper is set
+ * (see WorkspaceWallpaperHost), so the default canvas pays nothing.
+ * ------------------------------------------------------------------------- */
+.workspace-wallpaper-host {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  /* Wallpaper media is decorative; never let it be dragged or selected. */
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.workspace-wallpaper-host > img,
+.workspace-wallpaper-host > video {
+  display: block;
+}
+
+/* Darkening scrim; opacity is driven inline from the darken setting. */
+.workspace-wallpaper-scrim {
+  position: absolute;
+  inset: 0;
+  background-color: #000;
+}
+
+/* While a wallpaper is on, the shell's opaque canvases go translucent so it
+ * can actually be seen. Scoped to [data-wallpaper="on"] (set by the gate), so
+ * the default build renders byte-identically to upstream.
+ *
+ * Uses color-mix rather than a flat alpha so each surface keeps its own theme
+ * colour — the hierarchy between sidebar and content survives the wash.
+ * The shell sits above the fixed wallpaper layer via the stacking context. */
+[data-wallpaper="on"] body,
+[data-wallpaper="on"] #root {
+  background-color: transparent;
+}
+
+[data-wallpaper="on"] .bg-background-secondary-default {
+  background-color: color-mix(
+    in srgb,
+    var(--color-background-secondary-default) 62%,
+    transparent
+  );
+}
+
+[data-wallpaper="on"] .bg-background-primary-default {
+  background-color: color-mix(
+    in srgb,
+    var(--color-background-primary-default) 78%,
+    transparent
+  );
+}
+
+/* Floating panels keep their own frosted treatment: re-assert the opaque-ish
+ * frosted token so menus stay readable over arbitrary wallpaper media. */
+[data-wallpaper="on"] .surface-frosted {
+  background-color: var(--color-surface-frosted-strong);
+}

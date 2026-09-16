@@ -13,6 +13,7 @@ import { CloseConfirmDialogHost } from "@/components/dialogs";
 import { installCloseConfirm } from "@/lib/close-confirm";
 import { startShortcutRuntime } from "@/features/shortcuts/runtime";
 import { ShortcutsGuideModal } from "@/features/shortcuts/ShortcutsGuideModal";
+import { WorkspaceWallpaperGate } from "@/features/theme/WorkspaceWallpaperGate";
 
 // Settings is a rare route; load it on demand so startup ships less JS.
 // Warm the chunk shortly after startup so the first click has no fetch gap.
@@ -50,6 +51,8 @@ export default function App() {
 
   return (
     <LazyMotion features={domAnimation}>
+      {/* Wallpaper layer, behind everything; renders nothing when unset. */}
+      <WorkspaceWallpaperGate />
       <HashRouter>
         {/* ChatPage stays mounted on every route; /settings only adds the
             modal overlay on top, so opening/closing settings never rebuilds
