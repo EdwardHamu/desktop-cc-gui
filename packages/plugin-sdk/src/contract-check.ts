@@ -7,6 +7,7 @@ import type {
   PluginContext,
   PluginManifest,
   PluginTier,
+  SessionMenuTarget,
 } from "./index";
 
 /**
@@ -40,6 +41,7 @@ type _PluginManifest = Assert<Mutual<PluginManifest, Pub.PluginManifest>>;
 type _JsonSchemaObject = Assert<Mutual<JsonSchemaObject, Pub.JsonSchemaObject>>;
 type _JsonSchemaProperty = Assert<Mutual<JsonSchemaProperty, Pub.JsonSchemaProperty>>;
 type _ComposerSlotId = Assert<Mutual<ComposerSlotId, Pub.ComposerSlotId>>;
+type _SessionMenuTarget = Assert<Mutual<SessionMenuTarget, Pub.SessionMenuTarget>>;
 type _PluginTier = Assert<Mutual<PluginTier, Pub.PluginTier>>;
 type _Disposer = Assert<Mutual<Disposer, Pub.Disposer>>;
 

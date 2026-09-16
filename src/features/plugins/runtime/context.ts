@@ -12,6 +12,7 @@ import {
   pageRegistry,
   panelTabRegistry,
   scopedPluginId,
+  sessionMenuRegistry,
   settingsRegistry,
   statusBarRegistry,
   timelineRowRegistry,
@@ -201,6 +202,18 @@ export function createPluginContext(
             title: def.title,
             keywords: def.keywords,
             run: () => runAsPlugin(def.run),
+          }),
+        );
+      },
+      registerSessionMenuItem(def) {
+        requirePermission("ui:session-menu");
+        return track(
+          sessionMenuRegistry.register({
+            id: scopedPluginId(id, def.key),
+            label: def.label,
+            icon: def.icon,
+            danger: def.danger,
+            run: (target) => runAsPlugin(() => def.run(target)),
           }),
         );
       },
