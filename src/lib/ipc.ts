@@ -712,6 +712,11 @@ export const ipc = {
     }),
   deleteSession: (engine: string, sessionId: string) =>
     invoke<void>("delete_session", { engine, sessionId }),
+  /** Remote (plugin-fed, e.g. WSL distro) session delete: no local db row
+   *  exists, so the host rm's the validated remotePath over the same remote
+   *  channel loadRemoteSessionPage reads through. */
+  deleteRemoteSession: (workspacePath: string, engine: string, remotePath: string) =>
+    invoke<void>("delete_remote_session", { workspacePath, engine, remotePath }),
   pinSession: (engine: string, sessionId: string, pinned: boolean) =>
     invoke<void>("pin_session", { engine, sessionId, pinned }),
   renameSession: (engine: string, sessionId: string, title: string) =>
