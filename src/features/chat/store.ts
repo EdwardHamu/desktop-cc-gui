@@ -1676,6 +1676,16 @@ if (import.meta.env.DEV) {
     useChatStore;
 }
 
+// Plugin API: 直接修改已有会话的 effort，跳过 refreshSessions 覆盖问题
+(window as unknown as {
+  __ccgui_patchSessionEffort: (engine: string, sessionId: string, workspacePath: string | undefined, effort: string) => void;
+}).__ccgui_patchSessionEffort = (engine, sessionId, workspacePath, effort) => {
+  const state = useChatStore.getState();
+  const key = sessionKey(engine, sessionId, workspacePath);
+  patchSession(useChatStore.setState, key, { activeEffort: effort });
+  void ipc.rememberSessionEffort?.(engine, sessionId, effort).catch(() => {});
+};
+
 // HMR swaps this module for a fresh store; without dispose the old module's
 // engine/session listeners keep firing into the dead store (and init on the
 // new store would double-subscribe).
