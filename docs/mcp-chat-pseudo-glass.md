@@ -27,3 +27,7 @@ data-virtual-inner 的高度是整段虚拟列表总高度，长会话可能产�
 - globals.css 编辑器诊断未返回错误或警告；git diff --check 通过。
 - MessageTimeline.test.tsx 与 use-composer-images.test.tsx 合计 11 项：5 通过、6 失败，并有 7 个运行错误；日志出现 Invalid hook call 与 useState 读取 null，未修复或跳过测试。未对改动前基线运行对照，不能直接断言这些失败与本次无关。
 - 未执行 Windows/macOS/Linux 实际 WebView 视觉、输入、滚动性能验收；未重启应用、未提交或推送。
+
+## 后续验证：React Hook 测试运行时修复
+
+先前记录的 Invalid hook call 已定位为 Windows 盘符大小写导致 React 双实例。Vitest 路径统一后，MessageTimeline 8 项、use-composer-images 3 项全部通过，无需更改生产组件或放宽测试断言。详见 docs/mcp-react-hook-test-runtime.md；此测试结果不替代真实 WebView 毛玻璃合成/性能验收。
