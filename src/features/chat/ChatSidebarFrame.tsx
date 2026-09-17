@@ -122,7 +122,7 @@ export function ChatSidebarFrame({
         <div
           aria-hidden
           onClick={onClose}
-          className="absolute inset-0 z-30 bg-black/40 md:hidden"
+          className="absolute inset-0 z-30 bg-transparent md:hidden"
         />
       )}
     </>

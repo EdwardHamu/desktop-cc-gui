@@ -186,24 +186,24 @@
   --color-text-white:           var(--color-white);
 
   /* Background */
-  --color-background-full:              var(--color-white);
-  --color-background-primary-default:   var(--color-white);
-  --color-background-inner-default:     var(--color-white);
-  --color-background-primary-hover:     var(--color-neutral-100);
-  --color-background-primary-active:    var(--color-neutral-200);
-  --color-background-primary-disabled:  var(--color-neutral-100);
-  --color-input-disabled-background:    var(--color-neutral-100);
-  --color-background-secondary-default: var(--color-neutral-100);
-  --color-background-secondary-hover:   var(--color-neutral-200);
-  --color-background-tertiary-default:  var(--color-neutral-200);
-  --color-background-tertiary-hover:    var(--color-neutral-300);
-  --color-background-tertiary-error:    var(--color-red-100);
-  --color-background-tertiary-warning:  var(--color-orange-100);
+  --color-background-full:              transparent;
+  --color-background-primary-default:   transparent;
+  --color-background-inner-default:     transparent;
+  --color-background-primary-hover:     transparent;
+  --color-background-primary-active:    transparent;
+  --color-background-primary-disabled:  transparent;
+  --color-input-disabled-background:    transparent;
+  --color-background-secondary-default: transparent;
+  --color-background-secondary-hover:   transparent;
+  --color-background-tertiary-default:  transparent;
+  --color-background-tertiary-hover:    transparent;
+  --color-background-tertiary-error:    transparent;
+  --color-background-tertiary-warning:  transparent;
   /* Figma background/quaternary/default — first used by the Storage
    * dropzone's upload-icon disc (node 4106:26587). */
-  --color-background-quaternary-default: var(--color-neutral-300);
-  --color-background-quaternary-hover:   var(--color-neutral-400);
-  --color-background-quaternary-error:   var(--color-red-200);
+  --color-background-quaternary-default: transparent;
+  --color-background-quaternary-hover:   transparent;
+  --color-background-quaternary-error:   transparent;
 
   /* Chat bubbles + overlay scrims */
   /* User message bubble: accent-500 in light, stepping down to accent-600 in
@@ -261,47 +261,47 @@
   --color-state-success-base: var(--color-lime-200);
 
   /* Selected control interiors remain light on colored tracks in both themes. */
-  --color-control-indicator-background:        var(--color-white);
-  --color-control-indicator-background-subtle: var(--color-neutral-100);
+  --color-control-indicator-background:        transparent;
+  --color-control-indicator-background-subtle: transparent;
   /* Stepped against the composer: the pill is white and the add button is the
    * subtle grey sitting on it, so the control separates from the surface it
    * shares an edge with. Dark mode keeps its own pair, where the pill is the
    * lighter of the two and the button steps the other way. */
-  --color-ai-chat-composer-add-background:       var(--color-neutral-100);
-  --color-ai-chat-composer-add-hover-background: var(--color-neutral-200);
+  --color-ai-chat-composer-add-background:       transparent;
+  --color-ai-chat-composer-add-hover-background: transparent;
   --color-agent-progress-ring:                     var(--color-white);
-  --color-button-ghost-background:                var(--color-accent-100);
+  --color-button-ghost-background:                transparent;
   --color-button-ghost-hover:                     var(--color-accent-200);
   --color-button-ghost-active:                    var(--color-accent-300);
   --color-button-ghost-disabled:                  var(--color-accent-50);
   --color-button-ghost-foreground:                var(--color-accent-700);
   --color-button-ghost-disabled-foreground:       var(--color-accent-300);
-  --color-dropdown-item-hover-background:        var(--color-neutral-100);
+  --color-dropdown-item-hover-background:        transparent;
 
   /* Recently shipped component badge. Kept semantic so its compact blue
    * surface can retain the same hierarchy in both themes. */
-  --color-badge-neutral-background: var(--color-neutral-200);
-  --color-pill-tab-blue-selected-background: var(--color-accent-50);
-  --color-pill-tab-blue-hover-background: var(--color-neutral-100);
+  --color-badge-neutral-background: transparent;
+  --color-pill-tab-blue-selected-background: transparent;
+  --color-pill-tab-blue-hover-background: transparent;
 
   /* Notification status-icon surfaces. */
   --color-notification-success-foreground:     var(--color-lime-600);
 
   /* Table status chips. Dark mappings come from the medical dashboard table
    * in Figma (4139:7202, 4139:7240, 4139:7278, 4139:7315). */
-  --color-status-lime-background:   var(--color-lime-200);
+  --color-status-lime-background:   transparent;
   --color-status-lime-text:         var(--color-lime-800);
-  --color-status-yellow-background: var(--color-yellow-200);
+  --color-status-yellow-background: transparent;
   --color-status-yellow-text:       var(--color-yellow-800);
-  --color-status-rose-background:   var(--color-rose-200);
+  --color-status-rose-background:   transparent;
   --color-status-rose-text:         var(--color-rose-800);
-  --color-status-cyan-background:   var(--color-cyan-200);
+  --color-status-cyan-background:   transparent;
   --color-status-cyan-text:         var(--color-cyan-800);
-  --color-status-green-background:  var(--color-green-200);
+  --color-status-green-background:  transparent;
   --color-status-green-text:        var(--color-green-600);
-  --color-status-blue-background:   var(--color-blue-200);
+  --color-status-blue-background:   transparent;
   --color-status-blue-text:         var(--color-blue-800);
-  --color-status-purple-background: var(--color-purple-100);
+  --color-status-purple-background: transparent;
   --color-status-purple-text:       var(--color-purple-600);
 
   /* Placeholder colors that don't map cleanly to existing text tokens */
@@ -410,32 +410,32 @@
   --color-input-disabled-text: color-mix(in srgb, var(--color-neutral-500) 40%, transparent);
 
   /* Background */
-  --color-background-full:              var(--color-neutral-925);
-  --color-background-primary-default:   var(--color-neutral-900);
-  --color-background-inner-default:     color-mix(in srgb, var(--color-white) 6%, transparent);
-  --color-background-primary-hover:     color-mix(in srgb, var(--color-white) 8%, transparent);
-  --color-background-primary-active:    color-mix(in srgb, var(--color-white) 12%, transparent);
-  --color-background-primary-disabled:  var(--color-neutral-900);
-  --color-input-disabled-background:    color-mix(in srgb, var(--color-white) 4%, transparent);
-  --color-background-secondary-default: var(--color-neutral-880);
-  --color-background-secondary-hover:   var(--color-neutral-850);
-  --color-background-tertiary-default:  var(--color-neutral-850);
-  --color-background-tertiary-hover:    var(--color-neutral-700);
-  --color-background-tertiary-error:    color-mix(in srgb, var(--color-red-950) 40%, transparent);
-  --color-background-tertiary-warning:  color-mix(in srgb, var(--color-orange-950) 40%, transparent);
-  --color-background-quaternary-default: var(--color-neutral-700);
-  --color-background-quaternary-hover:   var(--color-neutral-600);
-  --color-background-quaternary-error:   color-mix(in srgb, var(--color-red-900) 35%, transparent);
-  --color-ai-chat-composer-add-background:       var(--color-neutral-700);
-  --color-ai-chat-composer-add-hover-background: var(--color-neutral-600);
+  --color-background-full:              transparent;
+  --color-background-primary-default:   transparent;
+  --color-background-inner-default:     transparent;
+  --color-background-primary-hover:     transparent;
+  --color-background-primary-active:    transparent;
+  --color-background-primary-disabled:  transparent;
+  --color-input-disabled-background:    transparent;
+  --color-background-secondary-default: transparent;
+  --color-background-secondary-hover:   transparent;
+  --color-background-tertiary-default:  transparent;
+  --color-background-tertiary-hover:    transparent;
+  --color-background-tertiary-error:    transparent;
+  --color-background-tertiary-warning:  transparent;
+  --color-background-quaternary-default: transparent;
+  --color-background-quaternary-hover:   transparent;
+  --color-background-quaternary-error:   transparent;
+  --color-ai-chat-composer-add-background:       transparent;
+  --color-ai-chat-composer-add-hover-background: transparent;
   --color-agent-progress-ring:                     var(--color-neutral-600);
-  --color-button-ghost-background:                var(--color-accent-900);
+  --color-button-ghost-background:                transparent;
   --color-button-ghost-hover:                     var(--color-accent-800);
   --color-button-ghost-active:                    var(--color-accent-700);
   --color-button-ghost-disabled:                  var(--color-neutral-800);
   --color-button-ghost-foreground:                var(--color-accent-300);
   --color-button-ghost-disabled-foreground:       var(--color-neutral-600);
-  --color-dropdown-item-hover-background:        color-mix(in srgb, var(--color-white) 8%, transparent);
+  --color-dropdown-item-hover-background:        transparent;
 
   /* Markdown syntax highlighting (hljs) — GitHub dark palette. */
   --color-md-token-comment:     rgba(150, 170, 200, 0.75);
@@ -467,7 +467,7 @@
     0 0 1px 0 rgb(0 0 0 / 0.42);
 
   /* Badges */
-  --color-badge-neutral-background: var(--color-neutral-800);
+  --color-badge-neutral-background: transparent;
 
   --color-notification-success-foreground:     var(--color-lime-300);
 
@@ -489,23 +489,23 @@
   --color-separator-border-strong: var(--color-neutral-700);
 
   /* Figma's dark table status pairs. */
-  --color-status-lime-background:   color-mix(in srgb, var(--color-lime-950) 60%, transparent);
+  --color-status-lime-background:   transparent;
   --color-status-lime-text:         var(--color-lime-500);
-  --color-status-yellow-background: color-mix(in srgb, var(--color-yellow-950) 60%, transparent);
+  --color-status-yellow-background: transparent;
   --color-status-yellow-text:       var(--color-yellow-500);
-  --color-status-rose-background:   color-mix(in srgb, var(--color-rose-950) 60%, transparent);
+  --color-status-rose-background:   transparent;
   --color-status-rose-text:         var(--color-rose-500);
-  --color-status-cyan-background:   color-mix(in srgb, var(--color-cyan-950) 60%, transparent);
+  --color-status-cyan-background:   transparent;
   --color-status-cyan-text:         var(--color-cyan-400);
-  --color-status-green-background:  color-mix(in srgb, var(--color-green-950) 60%, transparent);
+  --color-status-green-background:  transparent;
   --color-status-green-text:        var(--color-green-400);
-  --color-status-blue-background:   color-mix(in srgb, var(--color-blue-950) 60%, transparent);
+  --color-status-blue-background:   transparent;
   --color-status-blue-text:         var(--color-blue-300);
-  --color-status-purple-background: color-mix(in srgb, var(--color-purple-900) 50%, transparent);
+  --color-status-purple-background: transparent;
   --color-status-purple-text:       var(--color-purple-300);
 
-  --color-pill-tab-blue-selected-background: color-mix(in srgb, var(--color-accent-950) 60%, transparent);
-  --color-pill-tab-blue-hover-background: var(--color-neutral-800);
+  --color-pill-tab-blue-selected-background: transparent;
+  --color-pill-tab-blue-hover-background: transparent;
 
   /* Disabled primary CTA: dark, low-emphasis fill with readable muted text. */
   --gradient-button-primary-disabled: linear-gradient(
@@ -556,22 +556,22 @@
   --color-input-disabled-text:  var(--color-input-disabled-text);
   --color-text-white:           var(--color-text-white);
 
-  --color-background-full:              var(--color-background-full);
-  --color-background-primary-default:   var(--color-background-primary-default);
-  --color-background-inner-default:     var(--color-background-inner-default);
-  --color-background-primary-hover:     var(--color-background-primary-hover);
-  --color-background-primary-active:    var(--color-background-primary-active);
-  --color-background-primary-disabled:  var(--color-background-primary-disabled);
-  --color-input-disabled-background:    var(--color-input-disabled-background);
-  --color-background-secondary-default: var(--color-background-secondary-default);
-  --color-background-secondary-hover:   var(--color-background-secondary-hover);
-  --color-background-tertiary-default:  var(--color-background-tertiary-default);
-  --color-background-tertiary-hover:    var(--color-background-tertiary-hover);
-  --color-background-tertiary-error:    var(--color-background-tertiary-error);
-  --color-background-tertiary-warning:  var(--color-background-tertiary-warning);
-  --color-background-quaternary-default: var(--color-background-quaternary-default);
-  --color-background-quaternary-hover:   var(--color-background-quaternary-hover);
-  --color-background-quaternary-error:   var(--color-background-quaternary-error);
+  --color-background-full:              transparent;
+  --color-background-primary-default:   transparent;
+  --color-background-inner-default:     transparent;
+  --color-background-primary-hover:     transparent;
+  --color-background-primary-active:    transparent;
+  --color-background-primary-disabled:  transparent;
+  --color-input-disabled-background:    transparent;
+  --color-background-secondary-default: transparent;
+  --color-background-secondary-hover:   transparent;
+  --color-background-tertiary-default:  transparent;
+  --color-background-tertiary-hover:    transparent;
+  --color-background-tertiary-error:    transparent;
+  --color-background-tertiary-warning:  transparent;
+  --color-background-quaternary-default: transparent;
+  --color-background-quaternary-hover:   transparent;
+  --color-background-quaternary-error:   transparent;
 
   --color-bubble-user:      var(--color-bubble-user);
   --color-overlay-backdrop: var(--color-overlay-backdrop);
@@ -601,35 +601,35 @@
 
   --color-state-success-text: var(--color-state-success-text);
   --color-state-success-base: var(--color-state-success-base);
-  --color-control-indicator-background:        var(--color-control-indicator-background);
-  --color-control-indicator-background-subtle: var(--color-control-indicator-background-subtle);
-  --color-ai-chat-composer-add-background:       var(--color-ai-chat-composer-add-background);
-  --color-ai-chat-composer-add-hover-background: var(--color-ai-chat-composer-add-hover-background);
+  --color-control-indicator-background:        transparent;
+  --color-control-indicator-background-subtle: transparent;
+  --color-ai-chat-composer-add-background:       transparent;
+  --color-ai-chat-composer-add-hover-background: transparent;
   --color-agent-progress-ring:                     var(--color-agent-progress-ring);
-  --color-button-ghost-background:                var(--color-button-ghost-background);
+  --color-button-ghost-background:                transparent;
   --color-button-ghost-hover:                     var(--color-button-ghost-hover);
   --color-button-ghost-active:                    var(--color-button-ghost-active);
   --color-button-ghost-disabled:                  var(--color-button-ghost-disabled);
   --color-button-ghost-foreground:                var(--color-button-ghost-foreground);
   --color-button-ghost-disabled-foreground:       var(--color-button-ghost-disabled-foreground);
-  --color-dropdown-item-hover-background:        var(--color-dropdown-item-hover-background);
-  --color-badge-neutral-background: var(--color-badge-neutral-background);
-  --color-pill-tab-blue-selected-background: var(--color-pill-tab-blue-selected-background);
-  --color-pill-tab-blue-hover-background: var(--color-pill-tab-blue-hover-background);
+  --color-dropdown-item-hover-background:        transparent;
+  --color-badge-neutral-background: transparent;
+  --color-pill-tab-blue-selected-background: transparent;
+  --color-pill-tab-blue-hover-background: transparent;
   --color-notification-success-foreground:     var(--color-notification-success-foreground);
-  --color-status-lime-background:   var(--color-status-lime-background);
+  --color-status-lime-background:   transparent;
   --color-status-lime-text:         var(--color-status-lime-text);
-  --color-status-yellow-background: var(--color-status-yellow-background);
+  --color-status-yellow-background: transparent;
   --color-status-yellow-text:       var(--color-status-yellow-text);
-  --color-status-rose-background:   var(--color-status-rose-background);
+  --color-status-rose-background:   transparent;
   --color-status-rose-text:         var(--color-status-rose-text);
-  --color-status-cyan-background:   var(--color-status-cyan-background);
+  --color-status-cyan-background:   transparent;
   --color-status-cyan-text:         var(--color-status-cyan-text);
-  --color-status-green-background:  var(--color-status-green-background);
+  --color-status-green-background:  transparent;
   --color-status-green-text:        var(--color-status-green-text);
-  --color-status-blue-background:   var(--color-status-blue-background);
+  --color-status-blue-background:   transparent;
   --color-status-blue-text:         var(--color-status-blue-text);
-  --color-status-purple-background: var(--color-status-purple-background);
+  --color-status-purple-background: transparent;
   --color-status-purple-text:       var(--color-status-purple-text);
 
   --color-text-error-placeholder: var(--color-text-error-placeholder);

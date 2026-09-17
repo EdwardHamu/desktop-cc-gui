@@ -220,10 +220,7 @@ export function AiChatSidebar({
       ref={rootRef}
       style={{ width }}
       className={cx(
-        "flex h-full shrink-0 flex-col overflow-hidden select-none",
-        flat
-          ? "bg-background-full"
-          : "bg-background-secondary-default",
+        "chat-glass-surface relative flex h-full shrink-0 flex-col overflow-hidden bg-transparent select-none",
         className,
       )}
     >

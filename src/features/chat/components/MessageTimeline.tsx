@@ -419,7 +419,7 @@ export const MessageTimeline = memo(function MessageTimeline({
         <div
           data-virtual-inner
           style={{ height: virtualizer.getTotalSize(), position: "relative" }}
-          className="mx-auto max-w-[750px]"
+          className="chat-glass-surface mx-auto max-w-[750px]"
         >
           {virtualizer.getVirtualItems().map((item) => {
             const isTail = item.index >= rows.length;

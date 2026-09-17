@@ -59,6 +59,7 @@ export const TerminalView = memo(function TerminalView({ id, cwd }: { id: string
         fontSize: 12,
         cursorBlink: true,
         scrollback: 5000,
+        allowTransparency: true,
         theme: terminalTheme(),
         // Option-as-meta so word jumps (⌥←/⌥→) reach readline on macOS.
         macOptionIsMeta: true,

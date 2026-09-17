@@ -12,10 +12,15 @@
 # command and the tauri invocation now go through pnpm (the repo is a pnpm
 # workspace since upstream v1.0.x).
 name: Release Windows EXE
+run-name: Windows EXE / ${{ inputs.request_id || github.run_id }}
 
 on:
   workflow_dispatch:
     inputs:
+      request_id:
+        description: "Optional client correlation ID for status monitoring"
+        required: false
+        type: string
       release_tag:
         description: "Optional release tag; defaults to v<tauri version>"
         required: false

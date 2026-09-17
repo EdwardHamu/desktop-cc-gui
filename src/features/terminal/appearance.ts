@@ -5,14 +5,14 @@ export const TERMINAL_FONT_FAMILY = 'Menlo, Monaco, "Courier New", monospace';
 /**
  * Palettes keyed off the app's `.dark` class rather than read from CSS
  * variables: Tailwind v4 tokens serialize as oklch()/color-mix(), which
- * xterm's color parser (hex/rgb only) rejects. Values mirror the app theme:
- * dark background matches --color-neutral-925 (#0d0d0d), ANSI colors follow
- * the VS Code dark/light palettes.
+ * xterm's color parser (hex/rgb only) rejects. Both backgrounds are transparent;
+ * TerminalView enables allowTransparency. ANSI colors retain the VS Code
+ * dark/light palettes.
  */
 export function terminalTheme(): ITheme {
   if (document.documentElement.classList.contains("dark")) {
     return {
-      background: "#0d0d0d",
+      background: "rgba(0, 0, 0, 0)",
       foreground: "#e6e6e6",
       cursor: "#e6e6e6",
       selectionBackground: "rgba(255, 255, 255, 0.22)",
@@ -35,7 +35,7 @@ export function terminalTheme(): ITheme {
     };
   }
   return {
-    background: "#ffffff",
+    background: "rgba(0, 0, 0, 0)",
     foreground: "#1f2328",
     cursor: "#1f2328",
     selectionBackground: "rgba(0, 0, 0, 0.16)",

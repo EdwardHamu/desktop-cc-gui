@@ -427,9 +427,8 @@ input[type="password"]::-ms-clear {
  * --blur-frosted) so light/dark are handled by the same cascade as every other
  * semantic colour.
  *
- * Deliberately NOT applied to the app canvas, the sidebar or message rows:
- * backdrop-filter forces those subtrees onto their own composited layer, and
- * on a scrolling chat transcript that costs far more than it looks worth.
+ * This floating-panel utility is separate from the explicitly requested
+ * transparent chat-glass-surface pseudo-element treatment below.
  * ------------------------------------------------------------------------- */
 
 /* Fallback first: browsers (or GPU blocklists) without backdrop-filter get the
@@ -486,11 +485,11 @@ input[type="password"]::-ms-clear {
   display: block;
 }
 
-/* Darkening scrim; opacity is driven inline from the darken setting. */
+/* Transparent scrim: retain the layer without darkening the wallpaper. */
 .workspace-wallpaper-scrim {
   position: absolute;
   inset: 0;
-  background-color: #000;
+  background-color: transparent;
 }
 
 /* While a wallpaper is on, the shell's opaque canvases go translucent so it
@@ -525,4 +524,25 @@ input[type="password"]::-ms-clear {
  * frosted token so menus stay readable over arbitrary wallpaper media. */
 [data-wallpaper="on"] .surface-frosted {
   background-color: var(--color-surface-frosted-strong);
+}
+
+/* Chat glass: each host must be positioned (relative, or the mobile drawer's
+ * absolute position). Isolate the negative pseudo layer without re-positioning
+ * children: virtual row transforms, composer menus and drag handles stay intact.
+ * Do not add overflow clipping here: composer menus extend outside the host. */
+.chat-glass-surface {
+  isolation: isolate;
+  background-color: transparent;
+}
+
+.chat-glass-surface::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: inherit;
+  background-color: transparent;
+  -webkit-backdrop-filter: blur(10px) saturate(125%);
+  backdrop-filter: blur(10px) saturate(125%);
 }

@@ -16,9 +16,9 @@ const MENU_POPOVER_MOTION = [
 export const MENU_POPOVER_SURFACE = [
   "max-w-[calc(100vw-32px)] overflow-y-auto",
   "rounded-2xl border border-border-button-default p-2.5 shadow-dropdown",
-  // Frosted panel (globals.css): translucent + blurred over the canvas, with
-  // an opaque @supports fallback so it degrades to the old solid surface.
-  "surface-frosted",
+  // Popover positioning (React Aria or an absolute caller) anchors ::before.
+  // Share the transparent 10px / 125% background layer with chat containers.
+  "chat-glass-surface bg-transparent",
   MENU_POPOVER_MOTION,
   "data-[placement=bottom]:origin-top-left data-[placement=top]:origin-bottom-left",
   "data-[placement=left]:origin-right data-[placement=right]:origin-left",
@@ -46,7 +46,7 @@ export function menuPopoverSurface({
   return [
     `${width} max-w-[calc(100vw-32px)] ${origin}`,
     `${radius} border border-border-button-default ${padding} shadow-dropdown`,
-    "surface-frosted",
+    "chat-glass-surface bg-transparent",
     MENU_POPOVER_MOTION,
   ].join(" ");
 }
