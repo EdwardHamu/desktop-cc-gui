@@ -68,6 +68,10 @@ pub struct BuiltCommand {
     pub command: Command,
     /// Written to stdin after spawn; stdin is then closed.
     pub stdin_payload: Option<String>,
+    /// Keep the child's stdin open after the payload instead of closing it:
+    /// claude answers control-protocol requests (permission asks, the
+    /// AskUserQuestion dialog) on the same pipe via `control_response` lines.
+    pub keep_stdin_open: bool,
     /// Temp files to remove once the process exits.
     pub cleanup_files: Vec<PathBuf>,
     /// Session id assigned before spawn (grok `-s <uuid>`).
@@ -129,6 +133,24 @@ pub enum EngineEvent {
         tool: Option<String>,
         path: Option<String>,
         message: String,
+    },
+    /// The CLI is asking the user to choose (control protocol: `can_use_tool`
+    /// for AskUserQuestion). `input` is the full tool input; the answer
+    /// command sends it back with the user's choices merged in.
+    Question {
+        request_id: String,
+        tool_use_id: Option<String>,
+        input: Value,
+    },
+    /// A parked question no longer needs an answer (the CLI cancelled it or
+    /// the run settled): the UI resolves the card without a choice.
+    QuestionSettled { request_id: String },
+    /// A control-protocol permission ask for any other tool. This client has
+    /// no approval UI, so the runner denies it in place — the same net
+    /// behavior as before the control protocol (headless cannot prompt).
+    ControlPermissionDeny {
+        request_id: String,
+        tool_name: String,
     },
     /// Turn finished successfully.
     Done {
@@ -630,6 +652,13 @@ pub struct ChildEntry {
     /// pinning the registry/EventSink/engine Arcs it owns: kill() aborts
     /// the reader after a settle grace, kill_all() aborts immediately.
     pub reader_abort: Arc<std::sync::OnceLock<tokio::task::AbortHandle>>,
+    /// Interactive stdin kept open past the payload (`keep_stdin_open`):
+    /// control responses (question answers) are written on it. Shared by the
+    /// run-id and session-id entries; `None` for one-shot runs.
+    pub stdin: Option<Arc<TokioMutex<Option<tokio::process::ChildStdin>>>>,
+    /// Pending question requests (request_id -> full tool input) awaiting the
+    /// user's answer; shared by both registry keys of the run.
+    pub questions: Arc<Mutex<HashMap<String, Value>>>,
 }
 
 #[derive(Default)]
@@ -638,6 +667,51 @@ pub struct ProcessRegistry(pub Mutex<HashMap<String, ChildEntry>>);
 /// Two concurrent runs of one session must never evict each other's entries:
 /// an evicted child leaks (no key routes an interrupt to it).
 impl ProcessRegistry {
+    /// Clone the entry registered under `key` (run id or session id).
+    fn get(&self, key: &str) -> Option<ChildEntry> {
+        self.0.lock().ok().and_then(|map| map.get(key).cloned())
+    }
+
+    /// Write one NDJSON control line to a live run's interactive stdin.
+    /// False when the run is unknown or its stdin is already closed.
+    fn write_line(&self, key: &str, line: String) -> bool {
+        let Some(stdin) = self.get(key).and_then(|entry| entry.stdin) else {
+            return false;
+        };
+        tokio::spawn(async move {
+            let mut guard = stdin.lock().await;
+            if let Some(handle) = guard.as_mut() {
+                let _ = handle.write_all(line.as_bytes()).await;
+                let _ = handle.write_all(b"\n").await;
+            }
+        });
+        true
+    }
+
+    /// Close a run's interactive stdin: the CLI treats EOF as the end of the
+    /// session and exits once the current turn is done.
+    fn close_stdin(&self, key: &str) {
+        let Some(stdin) = self.get(key).and_then(|entry| entry.stdin) else {
+            return;
+        };
+        tokio::spawn(async move {
+            *stdin.lock().await = None;
+        });
+    }
+
+    /// Drain and return the request ids of a run's pending questions.
+    fn take_questions(&self, key: &str) -> Vec<String> {
+        let Some(entry) = self.get(key) else {
+            return Vec::new();
+        };
+        let Ok(mut questions) = entry.questions.lock() else {
+            return Vec::new();
+        };
+        let ids: Vec<String> = questions.keys().cloned().collect();
+        questions.clear();
+        ids
+    }
+
     fn insert(&self, key: String, entry: ChildEntry) {
         if let Ok(mut map) = self.0.lock() {
             map.insert(key, entry);
@@ -1073,6 +1147,7 @@ fn prepare_launch(
         BuiltCommand {
             command: Command::new("unused-virtual-engine"),
             stdin_payload: None,
+            keep_stdin_open: false,
             cleanup_files: Vec::new(),
             preassigned_session_id: None,
         }
@@ -1087,19 +1162,39 @@ fn prepare_launch(
     })
 }
 
-/// Stdin payload writer: engines consuming stream-json stdin get the payload
-/// then EOF (drop closes the pipe).
-fn spawn_stdin_writer(child: &mut Child, payload: Option<String>) {
-    let Some(payload) = payload else {
-        return;
-    };
-    if let Some(mut stdin) = child.stdin.take() {
+/// Stdin payload writer: engines consuming stream-json stdin get the payload,
+/// then EOF (drop closes the pipe) — unless `keep_open`, where the handle is
+/// returned instead so control responses can follow on the same pipe.
+fn spawn_stdin_writer(
+    child: &mut Child,
+    payload: Option<String>,
+    keep_open: bool,
+) -> Option<Arc<TokioMutex<Option<tokio::process::ChildStdin>>>> {
+    if !keep_open {
+        let Some(payload) = payload else {
+            return None;
+        };
+        if let Some(mut stdin) = child.stdin.take() {
+            tokio::spawn(async move {
+                let _ = stdin.write_all(payload.as_bytes()).await;
+                let _ = stdin.write_all(b"\n").await;
+                // drop closes stdin -> EOF
+            });
+        }
+        return None;
+    }
+    let keep = Arc::new(TokioMutex::new(child.stdin.take()));
+    if let Some(payload) = payload {
+        let handle = Arc::clone(&keep);
         tokio::spawn(async move {
-            let _ = stdin.write_all(payload.as_bytes()).await;
-            let _ = stdin.write_all(b"\n").await;
-            // drop closes stdin -> EOF
+            let mut guard = handle.lock().await;
+            if let Some(stdin) = guard.as_mut() {
+                let _ = stdin.write_all(payload.as_bytes()).await;
+                let _ = stdin.write_all(b"\n").await;
+            }
         });
     }
+    Some(keep)
 }
 
 /// Diagnostics ring: keeps the last 4KB for the error banner.
@@ -1370,6 +1465,71 @@ impl TurnCore {
                     serde_json::json!({ "tool": tool, "path": path, "message": message }),
                 );
             }
+            EngineEvent::Question {
+                request_id,
+                tool_use_id,
+                input,
+            } => {
+                // Park the ask: the answer command rebuilds updatedInput from
+                // this exact input (the control protocol wants the full tool
+                // input back, with the answers merged in).
+                if let Some(entry) = self.registry.get(&self.run_id) {
+                    if let Ok(mut questions) = entry.questions.lock() {
+                        questions.insert(request_id.clone(), input.clone());
+                    }
+                }
+                state.push(
+                    &self.sink,
+                    &self.run_id,
+                    &self.engine_id,
+                    "question",
+                    serde_json::json!({
+                        "requestId": request_id,
+                        "toolUseId": tool_use_id,
+                        "input": input,
+                    }),
+                );
+            }
+            EngineEvent::QuestionSettled { request_id } => {
+                if let Some(entry) = self.registry.get(&self.run_id) {
+                    if let Ok(mut questions) = entry.questions.lock() {
+                        questions.remove(&request_id);
+                    }
+                }
+                state.push(
+                    &self.sink,
+                    &self.run_id,
+                    &self.engine_id,
+                    "question_settled",
+                    serde_json::json!({ "requestId": request_id }),
+                );
+            }
+            EngineEvent::ControlPermissionDeny {
+                request_id,
+                tool_name,
+            } => {
+                // No approval UI in this client: deny in place so the CLI is
+                // not left parked until its deadline. Net behavior matches
+                // the pre-control-protocol headless run (ask -> denial, the
+                // model works around it).
+                self.registry.write_line(
+                    &self.run_id,
+                    serde_json::json!({
+                        "type": "control_response",
+                        "response": {
+                            "subtype": "success",
+                            "request_id": request_id,
+                            "response": {
+                                "behavior": "deny",
+                                "message": format!(
+                                    "This client cannot show tool-permission prompts; the {tool_name} call was denied. Work around it, or tell the user what you would have run so they can approve it another way."
+                                ),
+                            },
+                        },
+                    })
+                    .to_string(),
+                );
+            }
             EngineEvent::Model(model) => {
                 state.push(
                     &self.sink,
@@ -1384,6 +1544,9 @@ impl TurnCore {
                 if let Some(id) = session_id {
                     self.adopt_session_id(state, &id, false);
                 }
+                // The turn is over: EOF the interactive stdin so the CLI
+                // exits instead of waiting for a next message forever.
+                self.registry.close_stdin(&self.run_id);
                 state.push(
                     &self.sink,
                     &self.run_id,
@@ -1576,6 +1739,16 @@ async fn run_reader(stdout: ChildStdout, ctx: RunContext) {
     }
     for path in &ctx.cleanup_files {
         let _ = std::fs::remove_file(path);
+    }
+    // Pending questions die with the run: settle their cards so the UI never
+    // leaves an answerable question pointing at a dead process.
+    for key in [state.native_session_id.clone(), Some(ctx.core.run_id.clone())]
+        .into_iter()
+        .flatten()
+    {
+        for request_id in ctx.core.registry.take_questions(&key) {
+            ctx.dispatch_event(&mut state, EngineEvent::QuestionSettled { request_id });
+        }
     }
     // Drain this run's registry entries: under the native session id after
     // rekey, and under the run id when the session id never arrived.
@@ -1772,7 +1945,7 @@ pub async fn send_message_inner(
         codex_provider_env::apply(&mut command).await;
     }
     command
-        .stdin(if launch.built.stdin_payload.is_some() {
+        .stdin(if launch.built.stdin_payload.is_some() || launch.built.keep_stdin_open {
             std::process::Stdio::piped()
         } else {
             std::process::Stdio::null()
@@ -1804,7 +1977,12 @@ pub async fn send_message_inner(
         }
     };
 
-    spawn_stdin_writer(&mut child, launch.built.stdin_payload);
+    let kept_stdin = spawn_stdin_writer(
+        &mut child,
+        launch.built.stdin_payload,
+        launch.built.keep_stdin_open,
+    );
+    let questions: Arc<Mutex<HashMap<String, Value>>> = Arc::new(Mutex::new(HashMap::new()));
 
     let run_id = uuid::Uuid::new_v4().to_string();
     // Join a kill-on-close job before the run can settle: an orphaned
@@ -1840,6 +2018,8 @@ pub async fn send_message_inner(
             run_id: run_id.clone(),
             killed: Arc::clone(&killed),
             reader_abort: Arc::clone(&reader_abort),
+            stdin: kept_stdin.clone(),
+            questions: Arc::clone(&questions),
         },
     );
     if let Some(session_id) = launch.built.preassigned_session_id.as_deref() {
@@ -1851,6 +2031,8 @@ pub async fn send_message_inner(
                 run_id: run_id.clone(),
                 killed: Arc::clone(&killed),
                 reader_abort: Arc::clone(&reader_abort),
+                stdin: kept_stdin.clone(),
+                questions: Arc::clone(&questions),
             },
         );
     }
@@ -1925,6 +2107,8 @@ async fn send_host_stream(
         run_id: run_id.clone(),
         killed: Arc::clone(&killed),
         reader_abort: Arc::clone(&reader_abort),
+        stdin: None,
+        questions: Arc::new(Mutex::new(HashMap::new())),
     };
     state.processes.insert(run_id.clone(), entry.clone());
     if let Some(session_id) = launch.req.session_id.as_deref() {
@@ -1972,6 +2156,56 @@ pub async fn interrupt_session(
     tauri::async_runtime::spawn_blocking(move || registry.kill(&session_id))
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Answer a pending AskUserQuestion (claude control protocol). `answers` maps
+/// each question's text to the chosen option label — an array of labels for
+/// multiSelect questions. `None` means the user skipped: the CLI records
+/// "did not answer" and the model continues without a choice. Accepts either
+/// the run id or the conversation session id, like `interrupt_session`.
+#[tauri::command]
+pub async fn answer_question(
+    state: tauri::State<'_, crate::AppState>,
+    session_id: String,
+    request_id: String,
+    answers: Option<Value>,
+) -> Result<(), String> {
+    let entry = state
+        .processes
+        .get(&session_id)
+        .ok_or_else(|| "no running session for this answer".to_string())?;
+    let input = entry
+        .questions
+        .lock()
+        .map_err(|_| "question state is poisoned".to_string())?
+        .remove(&request_id)
+        .ok_or_else(|| "question is no longer pending".to_string())?;
+    let mut updated = match input {
+        Value::Object(map) => map,
+        // Defensive: a non-object input cannot merge answers; rebuild the
+        // minimal shape the question reader expects.
+        questions => {
+            let mut map = serde_json::Map::new();
+            map.insert("questions".to_string(), questions);
+            map
+        }
+    };
+    if let Some(answers) = answers {
+        updated.insert("answers".to_string(), answers);
+    }
+    let line = serde_json::json!({
+        "type": "control_response",
+        "response": {
+            "subtype": "success",
+            "request_id": request_id,
+            "response": { "behavior": "allow", "updatedInput": Value::Object(updated) },
+        },
+    })
+    .to_string();
+    if !state.processes.write_line(&session_id, line) {
+        return Err("the session is no longer accepting answers".to_string());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -2367,6 +2601,8 @@ mod retry_lifecycle_tests {
             cleanup_files: vec![path],
             stderr_buf: Arc::new(Mutex::new(String::new())),
             stdout_plain_buf: Arc::new(Mutex::new(String::new())),
+            #[cfg(windows)]
+            _tree_guard: None,
         };
         run_reader(stdout, ctx).await;
         let events = std::mem::take(&mut *emitter.0.lock().unwrap());
@@ -2410,6 +2646,8 @@ mod retry_lifecycle_tests {
             cleanup_files: Vec::new(),
             stderr_buf: Arc::new(Mutex::new(String::new())),
             stdout_plain_buf: Arc::new(Mutex::new(String::new())),
+            #[cfg(windows)]
+            _tree_guard: None,
         };
         run_reader(stdout, ctx).await;
         let events = std::mem::take(&mut *emitter.0.lock().unwrap());
@@ -2491,6 +2729,8 @@ mod registry_tests {
             run_id: "run-1".to_string(),
             killed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             reader_abort: Arc::new(std::sync::OnceLock::new()),
+            stdin: None,
+            questions: Arc::new(Mutex::new(HashMap::new())),
         };
         let registry = ProcessRegistry::default();
         registry.insert("run-1".to_string(), entry);
@@ -2537,6 +2777,8 @@ mod registry_tests {
             run_id: "run-preassigned".to_string(),
             killed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             reader_abort: Arc::new(std::sync::OnceLock::new()),
+            stdin: None,
+            questions: Arc::new(Mutex::new(HashMap::new())),
         };
         let registry = ProcessRegistry::default();
         registry.insert("run-preassigned".to_string(), entry.clone());
@@ -2594,6 +2836,8 @@ mod registry_tests {
             run_id: "run-tree".to_string(),
             killed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             reader_abort: Arc::new(std::sync::OnceLock::new()),
+            stdin: None,
+            questions: Arc::new(Mutex::new(HashMap::new())),
         };
         let registry = ProcessRegistry::default();
         registry.insert("run-tree".to_string(), entry);

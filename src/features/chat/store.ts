@@ -51,6 +51,7 @@ import {
   patchGrantBySeq,
   rememberModelForRun,
   rememberEffortForRun,
+  patchQuestionByRequestId,
   settleOrphanedRuns,
   upsertSessionMetaInto,
 } from "./store/engine-events";
@@ -1207,6 +1208,31 @@ export const useChatStore = create<ChatStore>((set, get) => {
           status: "granted",
         }));
       } catch (error) {
+        patchSession(set, key, { error: errorText(error) });
+      }
+    },
+
+    respondToQuestion: async (key, seq, answers) => {
+      const message = get().bySession[key]?.messages.find((m) => m.seq === seq);
+      const question = message?.question;
+      if (
+        !message ||
+        message.role !== "question" ||
+        !question ||
+        question.status !== "pending"
+      ) {
+        return;
+      }
+      try {
+        await ipc.answerQuestion(question.runId, question.requestId, answers);
+        patchQuestionByRequestId(set, key, question.requestId, (cur) => ({
+          ...cur,
+          status: answers ? ("answered" as const) : ("dismissed" as const),
+          ...(answers ? { answers } : {}),
+        }));
+      } catch (error) {
+        // The answer never reached the process (the run is gone): surface it;
+        // a later question_settled event resolves the still-pending card.
         patchSession(set, key, { error: errorText(error) });
       }
     },

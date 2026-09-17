@@ -146,6 +146,13 @@ export interface ChatStore {
   /** Answer a permission-denial grant card: persist the directory grant
    * (accept) or mark the card declined. */
   respondToGrant: (key: string, seq: number, accept: boolean) => Promise<void>;
+  /** Answer a pending AskUserQuestion card: send the picked labels (null =
+   * skipped) to the parked CLI process via the control protocol. */
+  respondToQuestion: (
+    key: string,
+    seq: number,
+    answers: Record<string, string | string[]> | null,
+  ) => Promise<void>;
   /** Re-send the session's last user message (grant card's one-click retry
    * after a directory grant takes effect on the next launch). */
   resendLastUser: (key: string) => Promise<void>;

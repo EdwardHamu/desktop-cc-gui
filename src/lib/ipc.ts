@@ -46,6 +46,14 @@ export interface TodosPayload {
   replace: boolean;
 }
 
+/** One AskUserQuestion question as the CLI emits it (control protocol). */
+export interface QuestionSpec {
+  question: string;
+  header: string;
+  multiSelect?: boolean;
+  options: { label: string; description?: string; preview?: string }[];
+}
+
 export interface Message {
   seq: number;
   role: string; // "user" | "assistant" | "tool" | "thinking"
@@ -73,6 +81,18 @@ export interface Message {
   grant?: {
     status: "pending" | "granted" | "declined";
     dir?: string | null;
+  };
+  /** AskUserQuestion card state (role "question"): the CLI parked the ask on
+   * the control protocol; `pending` until the user picks or skips. `runId`
+   * routes the answer to the process, `requestId` to the ask itself. These
+   * rows are ephemeral UI — not part of the CLI's session history. */
+  question?: {
+    requestId: string;
+    runId: string;
+    toolUseId?: string | null;
+    questions: QuestionSpec[];
+    status: "pending" | "answered" | "dismissed" | "cancelled";
+    answers?: Record<string, string | string[]>;
   };
   /** Image attachments: data URLs render directly, absolute paths load via readFile. */
   images?: string[];
@@ -796,6 +816,14 @@ export const ipc = {
   /** Persist a user-approved directory grant; subsequent claude launches
    * receive it as --add-dir. */
   grantRoot: (path: string) => invoke<void>("grant_root", { path }),
+  /** Answer a pending AskUserQuestion card (claude control protocol).
+   * `answers` maps each question's text to the chosen label(s); null = the
+   * user skipped the question. Routed by run id (falls back to session id). */
+  answerQuestion: (
+    sessionId: string,
+    requestId: string,
+    answers: Record<string, string | string[]> | null,
+  ) => invoke<void>("answer_question", { sessionId, requestId, answers }),
   revokeGrantedRoot: (path: string) => invoke<void>("revoke_granted_root", { path }),
   // git
   gitStatus: (path: string) => invoke<GitStatus>("git_status", { path }),
