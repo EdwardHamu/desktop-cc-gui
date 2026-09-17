@@ -1,3 +1,5 @@
+pub mod agents;
+pub mod agent_catalog;
 pub mod baidu_tongji;
 pub mod cc_switch;
 pub mod cli_lifecycle;
@@ -14,6 +16,7 @@ pub mod open_app;
 pub mod paths;
 pub mod plugins;
 pub mod plugin_caps;
+pub mod prompts;
 pub mod proxy;
 pub mod provider_files;
 pub mod provider_models;
@@ -76,6 +79,15 @@ pub fn run() {
                 // Same non-fatal rule: groups stay unassigned and the user can
                 // redo them in Settings → 工作区.
                 eprintln!("[settings] legacy group import failed: {error}");
+            }
+
+            if let Err(error) = agents::import_legacy_agents_once(&db) {
+                // Same non-fatal rule: the `#` picker simply starts empty.
+                eprintln!("[agents] legacy agent import failed: {error}");
+            }
+            if let Err(error) = prompts::import_legacy_prompts_once(&db) {
+                // Same non-fatal rule: the `!` picker simply starts empty.
+                eprintln!("[prompts] legacy prompt import failed: {error}");
             }
             // files.rs commands inject State<'_, Arc<db::Db>> for workspace
             // confinement, so the Arc itself must be managed alongside.
@@ -290,6 +302,23 @@ pub fn run() {
             files::list_file_index,
             // composer `/` slash-command picker
             slash_commands::list_slash_commands,
+            // agents & prompts (composer `#`/`!` pickers)
+            agents::agent_list,
+            agents::agent_add,
+            agents::agent_update,
+            agents::agent_delete,
+            // built-in agent catalog (agency-agents pack)
+            agent_catalog::list_built_in_agents,
+            agent_catalog::set_built_in_agent_enabled,
+            agent_catalog::set_built_in_agent_division_enabled,
+            agent_catalog::get_built_in_agent_prompt,
+            agent_catalog::resolve_enabled_built_in_agent,
+            prompts::prompts_list,
+            prompts::prompts_dirs,
+            prompts::prompts_create,
+            prompts::prompts_update,
+            prompts::prompts_delete,
+            prompts::prompts_move,
             // On-demand directory grants (desktop-only — see grant_root).
             files::grant_scope,
             files::grant_root,

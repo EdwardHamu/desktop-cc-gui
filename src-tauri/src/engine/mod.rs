@@ -1230,6 +1230,12 @@ impl TurnState {
             "seq": self.seq,
             "kind": kind,
             "data": data,
+            // Emit-side timestamp (Unix ms): plugins compute throughput from
+            // consecutive reports; arrival time would add IPC batching jitter.
+            "ts": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0),
         }));
     }
 }
@@ -2533,6 +2539,10 @@ mod retry_lifecycle_tests {
             cleanup_files: vec![path],
             stderr_buf: Arc::new(Mutex::new(String::new())),
             stdout_plain_buf: Arc::new(Mutex::new(String::new())),
+            // Windows-only guard field the production constructor fills; this
+            // test spawns a plain child, so there is no job object to hold.
+            #[cfg(windows)]
+            _tree_guard: None,
         };
         run_reader(stdout, ctx).await;
         let events = std::mem::take(&mut *emitter.0.lock().unwrap());
@@ -2576,6 +2586,9 @@ mod retry_lifecycle_tests {
             cleanup_files: Vec::new(),
             stderr_buf: Arc::new(Mutex::new(String::new())),
             stdout_plain_buf: Arc::new(Mutex::new(String::new())),
+            // See the pipe-retry constructor above.
+            #[cfg(windows)]
+            _tree_guard: None,
         };
         run_reader(stdout, ctx).await;
         let events = std::mem::take(&mut *emitter.0.lock().unwrap());

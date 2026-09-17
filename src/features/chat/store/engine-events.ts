@@ -25,6 +25,7 @@ import {
 import type { ChatStore } from "../store";
 import { mergeUsage, parseUsage, reportedContextWindow, type ParsedUsage } from "../usage";
 import { usageTrackingEnabled } from "@/features/settings/usage-tracking";
+import { migrateSelectedAgent } from "@/features/agents/selected-agent";
 
 /**
  * Engine-event handling: the main loop resolves each event's session key and
@@ -419,6 +420,9 @@ function onSession(
     persistTabs(openTabs, s.active);
     return { openTabs };
   });
+  // The pinned agent followed the draft key; move it onto the native id so
+  // the next send in this tab injects it again.
+  migrateSelectedAgent(workspacePath, nativeId);
   // Sidebar row + tab title pick the new session up immediately instead of
   // waiting for the post-turn rescan.
   const firstUser = (deps.get().bySession[newKey]?.messages ?? []).find(
