@@ -144,7 +144,7 @@ export function CliConfigBody({ cli }: { cli: CliConfigState }) {
         </div>
 
         {!enabled && (
-          <div className="absolute inset-0 z-10 flex items-start justify-center rounded-2xl bg-background-primary-default/70 pt-10 backdrop-blur-[1px]">
+          <div className="chat-glass-surface absolute inset-0 z-10 flex items-start justify-center rounded-2xl bg-transparent pt-10">
             <p className="rounded-xl border border-border-button-default bg-background-primary-default px-4 py-2 text-body-2-medium text-text-secondary shadow-sm">
               {t("settings.cliDisabledOverlay")}
             </p>

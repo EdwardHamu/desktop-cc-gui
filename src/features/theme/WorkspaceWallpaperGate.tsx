@@ -7,6 +7,7 @@
  */
 import { useEffect, useState } from "react";
 import { ipc, type AppSettings } from "@/lib/ipc";
+import { useGlassWallpaper } from "./use-glass-wallpaper";
 import { WorkspaceWallpaperHost } from "./WorkspaceWallpaperHost";
 import {
   DEFAULT_WORKSPACE_WALLPAPER,
@@ -47,6 +48,8 @@ export function WorkspaceWallpaperGate() {
     window.addEventListener(WALLPAPER_CHANGE_EVENT, onChange);
     return () => window.removeEventListener(WALLPAPER_CHANGE_EVENT, onChange);
   }, []);
+
+  useGlassWallpaper(wallpaper);
 
   // The app shell paints an opaque canvas; flag the root so the stylesheet can
   // make those surfaces translucent only while a wallpaper is actually shown.

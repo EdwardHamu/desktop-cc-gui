@@ -457,30 +457,24 @@ input[type="password"]::-ms-clear {
  * transparent chat-glass-surface pseudo-element treatment below.
  * ------------------------------------------------------------------------- */
 
-/* Fallback first: browsers (or GPU blocklists) without backdrop-filter get the
- * opaque token, so a floating panel is never unreadably transparent. */
-.surface-frosted {
-  background-color: var(--color-background-primary-default);
-}
+/* Cached wallpaper textures: no live backdrop sampling. All containers share
+ * the gate-owned bitmap; solid theme colors cover loading/error/no-wallpaper. */
+:root { --glass-static-base: #f5f5f5; }
+.dark { --glass-static-base: #171717; }
 
-@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .surface-frosted {
-    background-color: var(--color-surface-frosted);
-    -webkit-backdrop-filter: blur(var(--blur-frosted)) saturate(180%);
-    backdrop-filter: blur(var(--blur-frosted)) saturate(180%);
-  }
-
-  /* Denser variant for panels that carry dense text (command palette, menus
-   * over busy content) where the lighter alpha starts to hurt legibility. */
-  .surface-frosted-strong {
-    background-color: var(--color-surface-frosted-strong);
-    -webkit-backdrop-filter: blur(var(--blur-frosted)) saturate(180%);
-    backdrop-filter: blur(var(--blur-frosted)) saturate(180%);
-  }
-}
-
+.surface-frosted,
 .surface-frosted-strong {
-  background-color: var(--color-background-primary-default);
+  background-color: var(--glass-static-base);
+  background-image: linear-gradient(var(--color-surface-frosted), var(--color-surface-frosted)), var(--glass-wallpaper-image, none);
+  background-size: auto, 100vw 100vh;
+  background-position: center, center;
+  background-repeat: no-repeat;
+  background-attachment: scroll, fixed;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.surface-frosted-strong {
+  background-image: linear-gradient(var(--color-surface-frosted-strong), var(--color-surface-frosted-strong)), var(--glass-wallpaper-image, none);
 }
 
 /* Hairline that reads against both themes; pairs with .surface-frosted on
@@ -548,9 +542,6 @@ input[type="password"]::-ms-clear {
 
 /* Floating panels keep their own frosted treatment: re-assert the opaque-ish
  * frosted token so menus stay readable over arbitrary wallpaper media. */
-[data-wallpaper="on"] .surface-frosted {
-  background-color: var(--color-surface-frosted-strong);
-}
 
 /* Chat glass: each host must be positioned (relative, or the mobile drawer's
  * absolute position). Isolate the negative pseudo layer without re-positioning
@@ -568,9 +559,14 @@ input[type="password"]::-ms-clear {
   z-index: -1;
   pointer-events: none;
   border-radius: inherit;
-  background-color: transparent;
-  -webkit-backdrop-filter: blur(10px) saturate(125%);
-  backdrop-filter: blur(10px) saturate(125%);
+  background-color: var(--glass-static-base);
+  background-image: var(--glass-wallpaper-image, none);
+  background-size: 100vw 100vh;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 /* Uniform border color across light/dark and interaction states. Only color is
@@ -587,7 +583,9 @@ input[type="password"]::-ms-clear {
 [data-chat-sidebar],
 [data-chat-sidebar] :where(:not(svg, svg *)),
 [data-app-status-bar],
-[data-app-status-bar] :where(:not(svg, svg *)) {
+[data-app-status-bar] :where(:not(svg, svg *)),
+.conversation-footer-text,
+.conversation-footer-text :where(:not(svg, svg *)) {
   color: var(--color-text-primary) !important;
 }
 

@@ -92,7 +92,7 @@ function AttachmentChips({
 }) {
   if (images.length === 0) return null;
   return (
-    <div className="mx-auto w-full max-w-3xl">
+    <div className="conversation-footer-text mx-auto w-full max-w-3xl text-text-primary">
       <div className="flex flex-wrap gap-1.5">
         {images.map((path) => (
           <AttachmentChip
@@ -111,7 +111,7 @@ function AttachmentChips({
 /** Active session's run status; renders idle placeholders with no session. */
 function ActiveRunStatus({ active }: { active: ActiveSession | null }) {
   return (
-    <div className="mx-auto w-full max-w-3xl">
+    <div className="conversation-footer-text mx-auto w-full max-w-3xl text-text-primary">
       <RunStatusStrip
         sessionKey={active ? sessionKey(active.engine, active.sessionId, active.workspacePath) : ""}
         engine={active?.engine ?? ""}
@@ -257,7 +257,7 @@ function FooterStatusBar({
   );
 
   return (
-    <div className="mx-auto w-full max-w-3xl">
+    <div className="conversation-footer-text mx-auto w-full max-w-3xl text-text-primary">
       <StatusBar
         branch={branch}
         branches={branches}
@@ -374,7 +374,7 @@ export function ConversationFooter({
       <div
         className="flex w-full flex-col gap-2.5 bg-background-primary-default px-4 pt-2.5 pb-2"
       >
-        <MessageQueue queue={queue} onRemove={onRemoveQueued} onSendNow={onSendQueuedNow} onClear={onClearQueued} className="mx-auto w-full max-w-3xl" />
+        <MessageQueue queue={queue} onRemove={onRemoveQueued} onSendNow={onSendQueuedNow} onClear={onClearQueued} className="conversation-footer-text mx-auto w-full max-w-3xl text-text-primary" />
         <ErrorBanner message={imageError} onDismiss={onDismissImageError} />
         <ErrorBanner message={branchError} onDismiss={onDismissBranchError} />
         <AttachmentChips
