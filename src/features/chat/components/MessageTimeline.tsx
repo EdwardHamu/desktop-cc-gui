@@ -395,15 +395,13 @@ export const MessageTimeline = memo(function MessageTimeline({
         onScrollToAnchor={handleScrollToAnchor}
       />
       <ScrollToBottomButton scrollRef={scrollRef} contentSignal={count} onJump={resumeFollow} />
-      {/* The rail is absolutely positioned, so its band must be reserved here or
-          a narrow window slides the centered column under the dashes. Only when
-          the rail actually renders (anchors present) — otherwise the padding
-          would be lopsided for no reason. */}
+      {/* Reserve the rail footprint symmetrically so the message column keeps
+          the composer's centerline. Both scrollbar gutters also stay balanced. */}
       <div
         ref={scrollRef}
         className={cx(
-          "min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4",
-          anchors.length > 0 && MESSAGE_ANCHOR_RAIL_BAND_CLASS,
+          "min-h-0 flex-1 overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable_both-edges]",
+          anchors.length > 0 ? MESSAGE_ANCHOR_RAIL_BAND_CLASS : "px-4",
         )}
       >
         <div data-sentinel className="h-px" />
@@ -419,7 +417,7 @@ export const MessageTimeline = memo(function MessageTimeline({
         <div
           data-virtual-inner
           style={{ height: virtualizer.getTotalSize(), position: "relative" }}
-          className="chat-glass-surface mx-auto max-w-[750px] rounded-2xl"
+          className="chat-glass-surface mx-auto w-full max-w-3xl rounded-2xl"
         >
           {virtualizer.getVirtualItems().map((item) => {
             const isTail = item.index >= rows.length;

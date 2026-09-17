@@ -19,6 +19,8 @@ No more staring at a black terminal. Open ccgui, pick a project, and chat with A
 
 The app is built with **Tauri 2 + React 18 + TypeScript + Rust** and runs on macOS, Windows, and Linux. Settings and state are persisted locally. Content sent to an AI provider follows the boundary of the channel you configured for that CLI.
 
+<img src="https://i0.wp.com/tva1.sinaimg.cn/large/9448bbf8gy1ih6huiag5kj212w0p01kx.jpg" alt="ccgui screenshot" width="800" />
+
 ---
 
 ## What can ccgui do?

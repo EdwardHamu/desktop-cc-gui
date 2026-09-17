@@ -19,6 +19,8 @@
 
 应用基于 **Tauri 2 + React 18 + TypeScript + Rust** 开发，支持 macOS / Windows / Linux。设置与状态默认在本机持久化；发送给 AI provider 的内容，遵循你为对应 CLI 配置的渠道边界。
 
+<img src="https://i0.wp.com/tva1.sinaimg.cn/large/9448bbf8gy1ih6huiag5kj212w0p01kx.jpg" alt="ccgui 界面预览" width="800" />
+
 ---
 
 ## ccgui 能干什么
