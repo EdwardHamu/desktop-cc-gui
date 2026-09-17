@@ -58,6 +58,7 @@ export function SwitchTrack({
 }) {
   const s = switchSizes[size];
 
+  // Switch hardware stays opaque even when general surface tokens are transparent.
   return (
     <span
       aria-hidden
@@ -67,7 +68,7 @@ export function SwitchTrack({
         s.trackRadius[shape],
         state.isSelected
           ? cx("bg-linear-to-b from-accent-500 to-accent-600", s.onShadow)
-          : "bg-background-tertiary-default",
+          : "bg-neutral-200 dark:bg-neutral-700",
         state.isDisabled && "opacity-50",
         state.isFocusVisible && "ring-2 ring-border-focus-ring ring-offset-2",
       )}
@@ -76,7 +77,7 @@ export function SwitchTrack({
       <span
         className={cx(
           "absolute flex items-center justify-center",
-          "bg-linear-to-b from-control-indicator-background from-[43.837%] to-control-indicator-background-subtle",
+          "bg-linear-to-b from-white from-[43.837%] to-neutral-50",
           "shadow-[0_3px_3px_0_rgb(0_0_0/0.03),0_0.75px_0_0_rgb(0_0_0/0.05)]",
           "transition-transform duration-200 ease",
           s.thumb,

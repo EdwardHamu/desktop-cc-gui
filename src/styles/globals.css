@@ -543,16 +543,24 @@ input[type="password"]::-ms-clear {
 /* Floating panels keep their own frosted treatment: re-assert the opaque-ish
  * frosted token so menus stay readable over arbitrary wallpaper media. */
 
+/* Alert cards need a positioned host. Keep this in base so existing sticky,
+ * absolute and fixed utility positions still win. Only div alerts are cards. */
+@layer base {
+  div[role="alert"] { position: relative; }
+}
+
 /* Chat glass: each host must be positioned (relative, or the mobile drawer's
  * absolute position). Isolate the negative pseudo layer without re-positioning
  * children: virtual row transforms, composer menus and drag handles stay intact.
  * Do not add overflow clipping here: composer menus extend outside the host. */
-.chat-glass-surface {
+.chat-glass-surface,
+div[role="alert"] {
   isolation: isolate;
   background-color: transparent;
 }
 
-.chat-glass-surface::before {
+.chat-glass-surface::before,
+div[role="alert"]::before {
   content: "";
   position: absolute;
   inset: 0;
