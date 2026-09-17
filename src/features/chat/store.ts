@@ -1012,7 +1012,6 @@ export const useChatStore = create<ChatStore>((set, get) => {
         const key = sessionKey(engine, active.sessionId, active.workspacePath);
         patchSession(set, key, { activeEffort: effort });
         void ipc.rememberSessionEffort(engine, active.sessionId, effort).catch(() => {});
-        stampActiveTab({ effort: undefined });
         return;
       }
       set({ efforts: { ...get().efforts, [engine]: effort } });
