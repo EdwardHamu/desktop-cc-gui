@@ -2367,6 +2367,10 @@ mod retry_lifecycle_tests {
             cleanup_files: vec![path],
             stderr_buf: Arc::new(Mutex::new(String::new())),
             stdout_plain_buf: Arc::new(Mutex::new(String::new())),
+            // Windows-only guard field the production constructor fills; this
+            // test spawns a plain child, so there is no job object to hold.
+            #[cfg(windows)]
+            _tree_guard: None,
         };
         run_reader(stdout, ctx).await;
         let events = std::mem::take(&mut *emitter.0.lock().unwrap());
@@ -2410,6 +2414,9 @@ mod retry_lifecycle_tests {
             cleanup_files: Vec::new(),
             stderr_buf: Arc::new(Mutex::new(String::new())),
             stdout_plain_buf: Arc::new(Mutex::new(String::new())),
+            // See the pipe-retry constructor above.
+            #[cfg(windows)]
+            _tree_guard: None,
         };
         run_reader(stdout, ctx).await;
         let events = std::mem::take(&mut *emitter.0.lock().unwrap());
