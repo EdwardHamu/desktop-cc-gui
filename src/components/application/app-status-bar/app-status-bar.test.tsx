@@ -58,6 +58,16 @@ describe("AppStatusBar plugin items (plan §4.2 #8)", () => {
     container.remove();
   });
 
+  it("uses the shared positioned glass surface and primary text without changing bar geometry", () => {
+    const bar = container.querySelector<HTMLElement>("[data-app-status-bar]");
+    expect(bar).not.toBeNull();
+    for (const name of ["chat-glass-surface", "relative", "bg-transparent", "text-text-primary", "h-7", "max-md:hidden"]) {
+      expect(bar!.classList.contains(name), name).toBe(true);
+    }
+    expect(bar!.classList.contains("bg-background-primary-default")).toBe(false);
+    expect(bar!.classList.contains("text-text-tertiary")).toBe(false);
+  });
+
   it("renders a registered StatusBarItemDef and removes it on dispose", async () => {
     // Registration notifies useRegistry subscribers synchronously; wrapping
     // the write in act flushes the resulting re-render.

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { cx } from "@/utils/cx";
+import { STATUS_FRAME_MS } from "@/utils/status-animation";
 
 /**
  * Agent Thinking — the agent "thinking" state that sits above a chat composer
@@ -75,11 +76,11 @@ const VARIANT_TONE: Record<AgentThinkingVariant, AgentThinkingTone> = {
 const DOTS_GRID = 3;
 const DOTS_SIZE = 4;
 const DOTS_GAP = 2;
-const DOTS_TICK_MS = 80;
-const DOTS_FADE_MS = 220;
+const DOTS_TICK_MS = STATUS_FRAME_MS;
 const DOTS_TRAIL = 0.3;
 const DOTS_MIN_OPACITY = 0.12;
-const DOTS_PHASE_STEP = 1 / 8;
+// Preserve the original 640ms travel period while sampling only at 5fps.
+const DOTS_PHASE_STEP = DOTS_TICK_MS / 640;
 
 // Static first frame: identical on server and client, and the resting state
 // under prefers-reduced-motion.
@@ -88,7 +89,7 @@ const DOTS_SEED = [0.55, 0.3, 0.15, 0.85, 0.55, 0.3, 1, 0.85, 0.55];
 /**
  * How far along the pattern's travel direction each cell sits, in [0, 1),
  * precomputed per variant at module scope: the scalars never change, so the
- * 80ms tick below only runs the phase math, not nine atan2 calls a frame.
+ * 200ms tick below only runs the phase math, not nine atan2 calls a frame.
  * The wave scalar is compressed below 1 so the phase wrap reads as the front
  * leaving the grid and re-entering; the spin angle is naturally cyclic.
  */
@@ -147,7 +148,8 @@ function DotsIndicator({ variant }: { variant: "wave" | "spin" }) {
             width: DOTS_SIZE,
             height: DOTS_SIZE,
             opacity,
-            transition: `opacity ${DOTS_FADE_MS}ms ease`,
+            // No interpolated frames between the 200ms samples.
+            transition: "none",
           }}
         />
       ))}
@@ -192,7 +194,7 @@ const STARS_INDICATOR = (
             marginLeft: -size / 2,
             marginTop: -size / 2,
             animationDuration: `${STAR_PERIOD_S}s`,
-            animationDelay: `${(i * STAR_PERIOD_S * 0.7) / STAR_COUNT}s`,
+            animationDelay: `${i * STATUS_FRAME_MS}ms`,
           }}
         >
           <path d={STAR_PATH} fill="currentColor" />
@@ -273,14 +275,14 @@ function ElapsedTimer({
     if (startedAt) {
       const id = window.setInterval(
         () => setElapsed(Math.max(0, (Date.now() - startedAt) / 1000)),
-        100,
+        STATUS_FRAME_MS,
       );
       return () => window.clearInterval(id);
     }
     const started = performance.now();
     const id = window.setInterval(
       () => setElapsed((performance.now() - started) / 1000),
-      100,
+      STATUS_FRAME_MS,
     );
     return () => window.clearInterval(id);
   }, [startedAt]);

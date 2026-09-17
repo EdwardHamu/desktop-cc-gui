@@ -116,7 +116,8 @@ export function AppStatusBar() {
 
   return (
     <div
-      className="flex h-7 shrink-0 items-center justify-end border-t border-separator-border bg-background-primary-default px-3 text-caption-1-medium text-text-tertiary select-none max-md:hidden"
+      data-app-status-bar
+      className="chat-glass-surface relative flex h-7 shrink-0 items-center justify-end border-t border-separator-border bg-transparent px-3 text-caption-1-medium text-text-primary select-none max-md:hidden"
     >
       <div className="flex min-w-0 items-center gap-3">
         <span

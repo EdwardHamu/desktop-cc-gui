@@ -10,6 +10,7 @@ import {
   Popover as AriaPopover,
 } from "react-aria-components";
 import { cx } from "@/utils/cx";
+import { menuPopoverSurface } from "@/components/base/dropdown/menu-styles";
 import { useDismissOnOutsidePress, useTriggerToggle } from "@/utils/use-dismiss-on-outside-press";
 import { COMPOSER_PERMISSIONS } from "./composer-permissions";
 
@@ -43,14 +44,12 @@ export interface ComposerPermissionOption {
  * moment a menu opens. Non-modal also switches off React Aria's outside-press
  * dismissal, so the menu restores it with useDismissOnOutsidePress, the same
  * fix as Select and Dropdown. */
-const PERMISSION_POPOVER = cx(
-  "w-[323px] max-w-[calc(100vw-32px)]",
-  "rounded-[20px] border border-border-button-default bg-background-primary-default p-1.5 shadow-dropdown",
-  "transition duration-150 ease-out",
-  "data-[entering]:opacity-0 data-[entering]:scale-95 data-[entering]:blur-[2px]",
-  "data-[exiting]:opacity-0 data-[exiting]:scale-95 data-[exiting]:blur-[2px]",
-  "data-[placement=bottom]:origin-top-left data-[placement=top]:origin-bottom-left",
-);
+const PERMISSION_POPOVER = menuPopoverSurface({
+  width: "w-[323px]",
+  origin: "data-[placement=bottom]:origin-top-left data-[placement=top]:origin-bottom-left",
+  radius: "rounded-[20px]",
+  padding: "p-1.5",
+});
 
 export interface PermissionMenuProps {
   /** Controlled mode. Left out, the picker keeps its own selection. */

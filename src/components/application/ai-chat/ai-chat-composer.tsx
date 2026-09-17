@@ -61,6 +61,7 @@ import {
   usePromptHistoryNav,
 } from "@/components/application/ai-chat/use-prompt-history";
 import { cx } from "@/utils/cx";
+import { menuPopoverSurface } from "@/components/base/dropdown/menu-styles";
 import { useDismissOnOutsidePress, useTriggerToggle } from "@/utils/use-dismiss-on-outside-press";
 
 /**
@@ -410,13 +411,12 @@ export function Composer({
 }
 
 /* -------------------------------------------------------------- status bar */
-const CONTEXT_POPOVER_CLASSES = cx(
-  "w-[340px] max-w-[calc(100vw-32px)] origin-bottom-right",
-  "rounded-2xl border border-border-button-default bg-background-primary-default p-2 shadow-dropdown",
-  "transition duration-150 ease-out",
-  "data-[entering]:opacity-0 data-[entering]:scale-95 data-[entering]:blur-[2px]",
-  "data-[exiting]:opacity-0 data-[exiting]:scale-95 data-[exiting]:blur-[2px]",
-);
+const CONTEXT_POPOVER_CLASSES = menuPopoverSurface({
+  width: "w-[340px]",
+  origin: "origin-bottom-right",
+  radius: "rounded-2xl",
+  padding: "p-2",
+});
 
 const EMPTY_LIMITS: UsageLimit[] = [];
 const EMPTY_PLAN = "";

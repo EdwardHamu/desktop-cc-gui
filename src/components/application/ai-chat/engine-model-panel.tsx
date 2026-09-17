@@ -12,6 +12,7 @@ import { CLI_DISPLAY_NAMES, inferModelEngine } from "@/components/foundations/ic
 import { EngineIcon } from "@/components/foundations/icons/engine-icon";
 import { supportsOmpFastMode, type OmpServiceTier } from "@/lib/omp-service-tier";
 import { cx } from "@/utils/cx";
+import { menuPopoverSurface } from "@/components/base/dropdown/menu-styles";
 import { OmpSpeedSection } from "./omp-speed-section";
 import { filterModels, groupModelsByProvider, type ModelGroup } from "./model-list";
 import { EFFORT_LABEL_KEYS, type EffortLevel } from "./effort-levels";
@@ -22,8 +23,13 @@ import type { MenuOption, ModelOption } from "./cli-menu";
  *  aligned with the engine list so the taller panel never clips below the
  *  composer-anchored popover. */
 const FLYOUT_CLASSES = cx(
-  "absolute left-full bottom-0 z-10 ml-2 w-80 max-w-[calc(100vw-32px)]",
-  "rounded-lg border border-border-button-default bg-background-primary-default p-1 shadow-dropdown",
+  "absolute left-full bottom-0 z-10 ml-2",
+  menuPopoverSurface({
+    width: "w-80",
+    origin: "origin-bottom-left",
+    radius: "rounded-lg",
+    padding: "p-1",
+  }),
 );
 
 /* ------------------------------------------------------------------ flyout */

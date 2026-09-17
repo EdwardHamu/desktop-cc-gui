@@ -1,4 +1,5 @@
-import { AnimatePresence, m } from "motion/react";
+import { AnimatePresence, m, useReducedMotion } from "motion/react";
+import { STATUS_FRAME_MS, statusStepEnd } from "@/utils/status-animation";
 import { useTranslation } from "react-i18next";
 import Download from "lucide-react/dist/esm/icons/download";
 import RefreshCcw from "lucide-react/dist/esm/icons/refresh-ccw";
@@ -121,6 +122,7 @@ function UpdateToastActions({
  * download/install, and surfaces errors from user-initiated actions.
  */
 export function UpdateToast() {
+  const reducedMotion = useReducedMotion();
   const stage = useUpdateStore((s) => s.stage);
   const version = useUpdateStore((s) => s.version);
   const downloadedBytes = useUpdateStore((s) => s.downloadedBytes);
@@ -144,7 +146,7 @@ export function UpdateToast() {
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 16 }}
-          transition={{ duration: 0.18 }}
+          transition={{ duration: reducedMotion ? 0 : STATUS_FRAME_MS / 1000, ease: statusStepEnd }}
           role="status"
           className="fixed bottom-4 right-4 z-50 flex w-80 flex-col gap-3 rounded-2xl border border-separator-border bg-background-primary-default p-4 shadow-xl"
         >
