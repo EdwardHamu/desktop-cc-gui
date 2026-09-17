@@ -3,6 +3,7 @@ pub mod cc_switch;
 pub mod cli_lifecycle;
 pub mod config;
 pub mod db;
+mod devtools;
 pub mod dsh_host;
 pub mod engine;
 pub mod event_sink;
@@ -178,6 +179,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            devtools::open_devtools,
             // config
             config::get_cli_config,
             config::upsert_provider,

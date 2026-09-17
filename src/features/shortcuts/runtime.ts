@@ -2,6 +2,7 @@ import { commandRegistry } from "@ccgui/plugin-sdk";
 import { listenSettingsChanged } from "@/lib/events";
 import { resolveShortcut, shortcutActions } from "./actions";
 import { registerKeydownHandler } from "./dispatcher";
+import { handleDevtoolsShortcut } from "./devtools";
 import {
   isEditableShortcutTarget,
   matchesShortcutForPlatform,
@@ -54,6 +55,7 @@ export function startShortcutRuntime(): () => void {
   );
 
   const unregisterKeydown = registerKeydownHandler((event) => {
+    if (handleDevtoolsShortcut(event)) return;
     const values = useShortcutsStore.getState().values;
     for (const action of shortcutActions) {
       const value = resolveShortcut(action, values);
