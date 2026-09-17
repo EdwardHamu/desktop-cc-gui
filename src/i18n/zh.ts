@@ -96,6 +96,8 @@ export const zh = {
     questionMultiHint: "可多选，选好后点「确认」",
     questionSubmit: "确认",
     questionSkip: "跳过不答",
+    questionOther: "其他（自己填写）",
+    questionOtherPlaceholder: "其他：输入你的答案…（回车确认）",
     questionAnswered: "已答复",
     questionSkipped: "已跳过（未作答）",
     questionCancelled: "问题已失效",

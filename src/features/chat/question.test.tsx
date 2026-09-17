@@ -1,5 +1,9 @@
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import i18n from "@/lib/i18n";
 import { ipc } from "@/lib/ipc";
+import { QuestionCard } from "./components/QuestionCard";
 import { useChatStore } from "./store";
 import { handleEngineEvents, type EngineEventDeps } from "./store/engine-events";
 import { sessionKey } from "./store/persistence";
@@ -139,5 +143,90 @@ describe("ask-user-question flow", () => {
     handleEngineEvents([questionEvent()], deps());
     handleEngineEvents([settledEvent()], deps());
     expect(cardRows()[0].question?.status).toBe("cancelled");
+  });
+});
+
+describe("QuestionCard free-form Other", () => {
+  const actEnvironment = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+  actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+  let container: HTMLDivElement;
+  let root: Root;
+
+  function cardMessage(multiSelect = false) {
+    return {
+      seq: 7,
+      role: "question",
+      text: QUESTION_TEXT,
+      ts: null,
+      question: {
+        requestId: "req-9",
+        runId: "run-9",
+        toolUseId: null,
+        questions: [
+          {
+            question: QUESTION_TEXT,
+            header: "方案",
+            multiSelect,
+            options: [
+              { label: "A", description: "方案 A" },
+              { label: "B", description: "方案 B" },
+            ],
+          },
+        ],
+        status: "pending" as const,
+      },
+    };
+  }
+  const buttonByText = (needle: string) =>
+    [...container.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes(needle),
+    );
+
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    void i18n.changeLanguage("zh");
+    useChatStore.setState({
+      openTabs: [],
+      active: { engine: "claude", sessionId: "s-1", workspacePath: "/tmp/ws" },
+      bySession: {
+        [KEY]: { ...EMPTY_SESSION, messages: [cardMessage() as never] },
+      },
+      streamingByKey: {},
+    });
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("a single-select question offers the free-form input; a multi-select one does not", () => {
+    act(() => root.render(<QuestionCard message={cardMessage() as never} />));
+    expect(container.querySelector("input")).toBeTruthy();
+    act(() => root.render(<QuestionCard message={cardMessage(true) as never} />));
+    expect(container.querySelector("input")).toBeFalsy();
+  });
+
+  it("typing a custom answer and confirming sends the free text", async () => {
+    act(() => root.render(<QuestionCard message={cardMessage() as never} />));
+    const input = container.querySelector("input")!;
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!;
+    await act(async () => {
+      setter.call(input, "用 C 方案");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      buttonByText("确认")!.click();
+    });
+    expect(vi.mocked(ipc.answerQuestion)).toHaveBeenCalledWith("run-9", "req-9", {
+      [QUESTION_TEXT]: "用 C 方案",
+    });
   });
 });

@@ -101,6 +101,8 @@ export const en: Messages = {
     questionMultiHint: "Select one or more, then confirm",
     questionSubmit: "Confirm",
     questionSkip: "Skip",
+    questionOther: "Other (type your own)",
+    questionOtherPlaceholder: "Other: type your answer… (Enter to confirm)",
     questionAnswered: "Answered",
     questionSkipped: "Skipped (no answer)",
     questionCancelled: "Question expired",

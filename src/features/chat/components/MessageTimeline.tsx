@@ -15,7 +15,7 @@ import { streamParseInterval, useThrottled } from "@/hooks/use-throttled";
 import { useCopied } from "@/hooks/use-copied";
 import { MessageImages } from "./MessageImages";
 import { GrantCard } from "./GrantCard";
-import { QuestionCard } from "./QuestionCard";
+import { QuestionRecord } from "./QuestionCard";
 import { MESSAGE_ANCHOR_RAIL_BAND_CLASS, MessageAnchorRail } from "./MessageAnchorRail";
 import { createAnchorRowsBuilder } from "./timeline-anchors";
 import { buildRows, collectToolKeys, rowKey, type TimelineRow } from "./timeline-rows";
@@ -242,8 +242,9 @@ export const MessageRow = memo(function MessageRow({
     return <GrantCard message={message} />;
   }
   if (message.role === "question") {
-    // AskUserQuestion card: the parked CLI waits on the control protocol.
-    return <QuestionCard message={message} />;
+    // The interaction lives in the dock above the composer; the timeline
+    // keeps only the placeholder / settled history row.
+    return <QuestionRecord message={message} />;
   }
   if (message.role === "user") {
     return (

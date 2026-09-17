@@ -12,6 +12,7 @@ import type { ActiveSession, QueuedMessage } from "../store";
 import { useChatStore } from "../store";
 import { ImageLightbox } from "./MessageImages";
 import { RunStatusStrip } from "./RunStatusStrip";
+import { QuestionDock } from "./QuestionDock";
 import { ErrorBanner } from "./ErrorBanner";
 import { sessionKey } from "../store";
 import { ComposerSlotExtras } from "@/features/plugins/boundary/composer-slot-extras";
@@ -384,6 +385,7 @@ export function ConversationFooter({
           onZoomImage={setZoomImage}
         />
         <ActiveRunStatus active={active} />
+        <QuestionDock />
         <FooterComposer
           active={active}
           draft={draft}
