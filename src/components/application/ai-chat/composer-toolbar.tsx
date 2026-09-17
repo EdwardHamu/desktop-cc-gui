@@ -49,7 +49,7 @@ export function ComposerToolbar({
           type="button"
           aria-label={t("chat.stop")}
           onClick={() => onStop?.()}
-          className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-button-primary p-2 transition-opacity duration-200 ease"
+          className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-button-primary/30 p-2 transition-opacity duration-200 ease"
         >
           <CircleStop className="size-5 text-text-white" aria-hidden />
         </button>
@@ -60,7 +60,7 @@ export function ComposerToolbar({
           disabled={disabled}
           onClick={onSend}
           className={cx(
-            "flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-button-primary p-2 transition-opacity duration-200 ease",
+            "flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-button-primary/30 p-2 transition-opacity duration-200 ease",
             disabled && "cursor-not-allowed opacity-40",
           )}
         >

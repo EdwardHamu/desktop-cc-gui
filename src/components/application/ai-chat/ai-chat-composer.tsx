@@ -509,7 +509,13 @@ function ProxyQuickToggle() {
           enabled ? "text-notification-success-foreground" : "text-foreground-icon-tertiary",
         )}
       >
-        <Globe className="size-4 shrink-0" strokeWidth={1.75} aria-hidden />
+        <Globe
+          className="size-4 shrink-0"
+          // Own the color rather than inheriting the footer's primary text color.
+          style={{ color: enabled ? "var(--color-notification-success-foreground)" : "var(--color-foreground-icon-tertiary)" }}
+          strokeWidth={1.75}
+          aria-hidden
+        />
       </AriaButton>
       <TooltipContent>{tip}</TooltipContent>
     </Tooltip>
