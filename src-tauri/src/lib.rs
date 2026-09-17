@@ -2,6 +2,7 @@ pub mod baidu_tongji;
 pub mod cc_switch;
 pub mod cli_lifecycle;
 pub mod config;
+mod completion_notifications;
 pub mod db;
 mod devtools;
 pub mod dsh_host;
@@ -84,7 +85,10 @@ pub fn run() {
             let emitters = event_sink::BroadcastEmit::new(Arc::new(app.handle().clone()));
             let state = AppState {
                 db,
-                sink: event_sink::EventSink::new(emitters.clone()),
+                sink: event_sink::EventSink::with_engine_observer(
+                    emitters.clone(),
+                    completion_notifications::observer(app.handle().clone()),
+                ),
                 terminal_sink: event_sink::EventSink::with_name(
                     emitters.clone(),
                     terminal::TERMINAL_OUTPUT_EVENT,

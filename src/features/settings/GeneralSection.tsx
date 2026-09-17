@@ -13,6 +13,7 @@ import {
 import { ipc, type AppSettings } from "@/lib/ipc";
 import { applyTheme } from "./theme";
 import { PromptHistoryManager, PromptHistoryToggleRow } from "./PromptHistorySettings";
+import { CompletionNotificationSettings } from "./CompletionNotificationSettings";
 import { WallpaperSettings } from "./WallpaperSettings";
 import { resolveWorkspaceWallpaper } from "@/features/theme/workspaceWallpaper";
 import { useChatStore } from "@/features/chat/store";
@@ -225,6 +226,7 @@ export function GeneralSection() {
           </SettingsCard>
         </div>
       )}
+      {settings && <CompletionNotificationSettings settings={settings} onSave={save} />}
       {settings && <PromptHistoryManager />}
     </div>
   );

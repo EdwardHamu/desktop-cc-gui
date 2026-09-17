@@ -259,6 +259,8 @@ export interface AppSettings {
   dshAutoStart?: boolean | null;
   /** Global network proxy switch; spawned children inherit the proxy env. */
   systemProxyEnabled: boolean;
+  sessionCompletionToast?: boolean;
+  sessionCompletionSound?: boolean;
   /** Workspace wallpaper (fork); absent = no wallpaper. See
    *  src/features/theme/workspaceWallpaper.ts for the shape and defaults. */
   workspaceWallpaper?: WorkspaceWallpaperSettings | null;

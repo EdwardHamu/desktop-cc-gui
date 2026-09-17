@@ -132,6 +132,11 @@ pub struct AppSettings {
     /// children (engine CLIs, terminals, dsh host) inherit it.
     #[serde(default)]
     pub system_proxy_enabled: bool,
+    /// Native alerts on every completed turn, regardless of window focus.
+    #[serde(default)]
+    pub session_completion_toast: bool,
+    #[serde(default)]
+    pub session_completion_sound: bool,
     /// Proxy URL (http/https/socks5); None/empty = unset.
     #[serde(default)]
     pub system_proxy_url: Option<String>,
@@ -241,6 +246,8 @@ impl Default for AppSettings {
             dsh_port: None,
             dsh_auto_start: None,
             system_proxy_enabled: false,
+            session_completion_toast: false,
+            session_completion_sound: false,
             system_proxy_url: None,
             bin_overrides: HashMap::new(),
         }

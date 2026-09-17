@@ -1,6 +1,14 @@
 import type { Messages } from "./zh";
 
 export const en: Messages = {
+  completionNotifications: {
+    "heading": "Session completion alerts",
+    "toast": "System notification",
+    "toastDescription": "Show a system notification after each turn, even while the app is in the foreground.",
+    "sound": "Completion sound",
+    "soundDescription": "Play a short chime after each turn, independently of system notifications.",
+    "note": "Off by default. System notification permissions, Do Not Disturb or mute may suppress alerts. Historical sessions are not replayed."
+},
   windowTitleBar: {
     label: "Window title bar",
     minimize: "Minimize",

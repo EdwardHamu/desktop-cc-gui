@@ -1,4 +1,12 @@
 export const zh = {
+  completionNotifications: {
+    "heading": "会话完成提醒",
+    "toast": "系统通知",
+    "toastDescription": "每轮会话结束后弹出系统通知，应用在前台时也提醒。",
+    "sound": "提示音",
+    "soundDescription": "每轮会话结束后播放短提示音，可与系统通知独立开关。",
+    "note": "默认关闭。系统勿扰、通知权限或静音可能阻止提醒；只提醒新结束的会话，不补发历史记录。"
+},
   windowTitleBar: {
     label: "窗口标题栏",
     minimize: "最小化",

@@ -18,6 +18,9 @@ tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+# Native completion toast + short synthesized chime (no audio decoder bundle).
+notify-rust = "=4.12.0"
+rodio = { version = "0.21.1", default-features = false, features = ["playback"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
 regex = "1"

@@ -105,27 +105,38 @@ pub struct EventSink {
     name: &'static str,
     inner: Mutex<Pending>,
     flush_interval: Duration,
+    observer: Option<Arc<dyn Fn(&Value) + Send + Sync>>,
 }
 
 impl EventSink {
     pub fn new(emitter: Arc<dyn Emit>) -> Arc<Self> {
-        Self::with_interval(emitter, ENGINE_EVENT_NAME, CHAT_FLUSH_INTERVAL)
+        Self::with_interval(emitter, ENGINE_EVENT_NAME, CHAT_FLUSH_INTERVAL, None)
     }
 
     /// Batched sink emitting under a custom event name (e.g. terminal output).
     pub fn with_name(emitter: Arc<dyn Emit>, name: &'static str) -> Arc<Self> {
-        Self::with_interval(emitter, name, FLUSH_INTERVAL)
+        Self::with_interval(emitter, name, FLUSH_INTERVAL, None)
+    }
+
+    /// Observe live engine events once, before fan-out to desktop/web clients.
+    pub fn with_engine_observer(
+        emitter: Arc<dyn Emit>,
+        observer: Arc<dyn Fn(&Value) + Send + Sync>,
+    ) -> Arc<Self> {
+        Self::with_interval(emitter, ENGINE_EVENT_NAME, CHAT_FLUSH_INTERVAL, Some(observer))
     }
 
     fn with_interval(
         emitter: Arc<dyn Emit>,
         name: &'static str,
         flush_interval: Duration,
+        observer: Option<Arc<dyn Fn(&Value) + Send + Sync>>,
     ) -> Arc<Self> {
         Arc::new(Self {
             emitter,
             name,
             flush_interval,
+            observer,
             inner: Mutex::new(Pending {
                 events: Vec::new(),
                 bytes: 0,
@@ -135,6 +146,7 @@ impl EventSink {
     }
 
     pub fn push(self: &Arc<Self>, event: Value) {
+        if let Some(observer) = &self.observer { observer(&event); }
         let Ok(json) = serde_json::to_string(&event) else {
             return;
         };
