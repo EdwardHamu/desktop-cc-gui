@@ -223,10 +223,23 @@ describe("QuestionCard free-form Other", () => {
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await act(async () => {
-      buttonByText("确认")!.click();
+      buttonByText("提交")!.click();
     });
     expect(vi.mocked(ipc.answerQuestion)).toHaveBeenCalledWith("run-9", "req-9", {
       [QUESTION_TEXT]: "用 C 方案",
+    });
+  });
+
+  it("an option pick replaces the typed answer (single select)", async () => {
+    act(() => root.render(<QuestionCard message={cardMessage() as never} />));
+    await act(async () => {
+      buttonByText("A")!.click();
+    });
+    await act(async () => {
+      buttonByText("提交")!.click();
+    });
+    expect(vi.mocked(ipc.answerQuestion)).toHaveBeenCalledWith("run-9", "req-9", {
+      [QUESTION_TEXT]: "A",
     });
   });
 });

@@ -2,14 +2,13 @@ import { sessionKey, useChatStore } from "../store";
 import { QuestionCard } from "./QuestionCard";
 
 /**
- * Floating dock above the composer: the active session's pending
- * AskUserQuestion, lifted out of the scrolling timeline. The timeline keeps
- * only a placeholder record; the interactive card lives here so the user
- * always sees it without chasing the stream.
+ * The active session's pending AskUserQuestion, or null. The dock takes over
+ * the composer while a question is pending, so both the footer (to hide the
+ * composer) and the dock itself resolve it through this hook.
  */
-export function QuestionDock() {
+export function usePendingQuestion() {
   const active = useChatStore((s) => s.active);
-  const pending = useChatStore((s) => {
+  return useChatStore((s) => {
     if (!active) return null;
     const key = sessionKey(active.engine, active.sessionId, active.workspacePath);
     const messages = s.bySession[key]?.messages ?? [];
@@ -19,10 +18,19 @@ export function QuestionDock() {
     }
     return null;
   });
+}
+
+/**
+ * Question panel that replaces the composer area while the CLI waits on the
+ * control protocol: it covers the input box instead of pushing chat content
+ * around, and the only exits are answering, the free-form input, or ignore.
+ */
+export function QuestionDock() {
+  const pending = usePendingQuestion();
   if (!pending) return null;
   return (
     <div className="mx-auto w-full max-w-3xl">
-      <div className="mb-2 rounded-xl border border-border-secondary bg-background-secondary-default px-3.5 py-3 shadow-lg">
+      <div className="rounded-xl border border-border-secondary bg-background-secondary-default px-3.5 py-3 shadow-lg">
         <QuestionCard message={pending} />
       </div>
     </div>
