@@ -1183,6 +1183,12 @@ impl TurnState {
             "seq": self.seq,
             "kind": kind,
             "data": data,
+            // Emit-side timestamp (Unix ms): plugins compute throughput from
+            // consecutive reports; arrival time would add IPC batching jitter.
+            "ts": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0),
         }));
     }
 }

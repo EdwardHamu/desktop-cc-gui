@@ -27,6 +27,7 @@ import { pluginIdFromRegistryKey, timelineRowRegistry, useRegistry } from "@ccgu
 import { PluginBoundary } from "@/features/plugins/boundary/PluginBoundary";
 import { useAnchorRailScroll } from "./use-anchor-rail-scroll";
 import { useLoadEarlier } from "./use-load-earlier";
+import { stripAgentBlock } from "./agent-block";
 
 const TimelineRowView = memo(function TimelineRowView({
   row,
@@ -222,6 +223,36 @@ function UserMessageCopy({ text }: { text: string }) {
   );
 }
 
+/** User bubble. The agent block sendPrompt appended stays in history (the
+ *  CLI transcript owns it), but the bubble strips it and carries the agent
+ *  identity as a small badge above, mirroring the meta row's caption type. */
+function UserMessageRow({ message }: { message: Message }) {
+  const { t } = useTranslation();
+  const stripped = useMemo(() => stripAgentBlock(message.text), [message.text]);
+  return (
+    <div className="group -mr-1.5 ml-auto flex w-fit max-w-[85%] flex-col items-end">
+      {stripped.agentName && (
+        <span
+          aria-label={t("chat.agentBadge", { name: stripped.agentName })}
+          className="mb-1 flex items-center gap-1 text-caption-1-regular text-text-tertiary"
+        >
+          {stripped.agentIcon && <span aria-hidden>{stripped.agentIcon}</span>}
+          {stripped.agentName}
+        </span>
+      )}
+      <div className="flex flex-col rounded-xl bg-bubble-user px-3.5 py-2.5 text-left text-body-regular whitespace-pre-wrap break-words text-text-white">
+        <CollapsibleMessage>
+          {message.images && message.images.length > 0 && (
+            <MessageImages images={message.images} />
+          )}
+          {stripped.text}
+        </CollapsibleMessage>
+      </div>
+      <UserMessageCopy text={stripped.text} />
+    </div>
+  );
+}
+
 export const MessageRow = memo(function MessageRow({
   message,
   workspacePath,
@@ -241,19 +272,7 @@ export const MessageRow = memo(function MessageRow({
     return <GrantCard message={message} />;
   }
   if (message.role === "user") {
-    return (
-      <div className="group -mr-1.5 ml-auto flex w-fit max-w-[85%] flex-col items-end">
-        <div className="flex flex-col rounded-xl bg-bubble-user px-3.5 py-2.5 text-left text-body-regular whitespace-pre-wrap break-words text-text-white">
-          <CollapsibleMessage>
-            {message.images && message.images.length > 0 && (
-              <MessageImages images={message.images} />
-            )}
-            {message.text}
-          </CollapsibleMessage>
-        </div>
-        <UserMessageCopy text={message.text} />
-      </div>
-    );
+    return <UserMessageRow message={message} />;
   }
   return (
     <div className="group flex flex-col text-left">

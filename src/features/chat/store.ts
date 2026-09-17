@@ -55,11 +55,22 @@ import {
   upsertSessionMetaInto,
 } from "./store/engine-events";
 import { effectivePermission, readPermissionPref } from "./store/permissions";
+import {
+  buildAgentBlock,
+  hasAgentBlock,
+} from "./components/agent-block";
+import i18n from "@/lib/i18n";
+import {
+  clearSelectedAgent,
+  getSelectedAgent,
+  migrateSelectedAgent,
+} from "@/features/agents/selected-agent";
 import { persistSettings } from "./store/settings-persist";
 import {
   listExternalSessionMetas,
   setSessionSourcesChangedCallback,
 } from "@/features/plugins/runtime/session-source";
+import { emitSessionActivated } from "@/features/plugins/runtime/events";
 import { appendCommittedRows, mergeExternalSessions, preserveUnscannedSessions, visibleSessions } from "./store/session-utils";
 import type { ChatStore } from "./store/types";
 
@@ -69,6 +80,7 @@ export type { ActiveSession } from "./store/persistence";
 export type { QueuedMessage, SessionState } from "./store/stream";
 export type { ChatStore } from "./store/types";
 export { effectivePermission } from "./store/permissions";
+export { AGENT_BLOCK_HEADER } from "./components/agent-block";
 export { sortedWorkspaceGroups } from "./store/session-utils";
 
 /** Unlisteners for the module-scope event subscriptions set up in init. */
@@ -122,6 +134,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
     if (!tab) {
       set({ active: null });
       persistTabs(get().openTabs, null);
+      emitSessionActivated(null, null);
       return;
     }
     if (tab.sessionId)
@@ -137,6 +150,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
           : { active: tab },
       );
       persistTabs(get().openTabs, tab);
+      emitSessionActivated(tab.engine, null);
     }
   }
 
@@ -231,6 +245,39 @@ export const useChatStore = create<ChatStore>((set, get) => {
     images: string[],
   ) {
     if (!prompt.trim() && images.length === 0) return;
+    // A pinned agent's instructions ride along as a tail block the
+    // transcript keeps (the bubble strips it back out for display). Slash
+    // prompts ("/compact") never get it, and a re-sent committed message
+    // already carries its block, so re-injecting would duplicate it.
+    const selectedAgent = getSelectedAgent(tab.workspacePath, tab.sessionId);
+    // Built-in resolve failures are re-flagged after the optimistic-turn
+    // patch below (which resets `error` for the new turn).
+    let agentResolveError: string | null = null;
+    if (selectedAgent && !prompt.startsWith("/") && !hasAgentBlock(prompt)) {
+      // Built-in picks store no prompt: resolve the current catalog prompt
+      // at send time. A since-disabled catalog entry fails the resolve —
+      // drop the stale pin, surface the session error banner, and still
+      // send the bare text.
+      if (selectedAgent.source === "builtIn") {
+        try {
+          const resolved = await ipc.resolveEnabledBuiltInAgent(selectedAgent.id);
+          prompt += buildAgentBlock({
+            name: resolved.name,
+            icon: resolved.icon ?? undefined,
+            prompt: resolved.prompt,
+          });
+        } catch {
+          clearSelectedAgent(tab.workspacePath, tab.sessionId);
+          agentResolveError = i18n.t("chat.agentUnavailable");
+        }
+      } else if (selectedAgent.prompt) {
+        prompt += buildAgentBlock({
+          name: selectedAgent.name,
+          icon: selectedAgent.icon,
+          prompt: selectedAgent.prompt,
+        });
+      }
+    }
     const engine = tab.engine;
     const key = sessionKey(engine, tab.sessionId, tab.workspacePath);
     // Resolve BEFORE the optimistic rows land: the patch below writes
@@ -296,6 +343,9 @@ export const useChatStore = create<ChatStore>((set, get) => {
         turnUsage: null,
       },
     );
+    if (agentResolveError) {
+      patchSession(set, key, { error: agentResolveError });
+    }
     try {
       const result = await ipc.sendMessage({
         engine,
@@ -313,6 +363,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
       });
       if (result.sessionId && !tab.sessionId) {
         // Preassigned native id (grok): adopt immediately.
+        migrateSelectedAgent(tab.workspacePath, result.sessionId);
         const newKey = sessionKey(
           engine,
           result.sessionId,
@@ -781,6 +832,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
         const unseen = key in s.unseen ? omitKey(s.unseen, key) : s.unseen;
         return { openTabs, active: tab, unseen, activeEngine: engine };
       });
+      emitSessionActivated(engine, sessionId);
       const existing = get().bySession[key];
       if (existing && existing.messages.length > 0) return;
       patchSession(set, key, { loading: true });

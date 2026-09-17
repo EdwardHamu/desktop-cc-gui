@@ -326,6 +326,96 @@ export interface SlashCommandEntry {
   source: string;
   kind: SlashEntryKind;
 }
+/** A user-defined agent persona (`agent_list`): picked in the composer `#`
+ *  menu, its prompt appended to the outgoing message. Stored in
+ *  `~/.ccgui-next/agents.json`. */
+export interface AgentConfig {
+  id: string;
+  name: string;
+  prompt?: string;
+  icon?: string;
+  /** Frontend-only pick origin: built-in catalog picks carry no prompt —
+   *  sendPrompt resolves the current catalog prompt at send time. Absent
+   *  (older persisted selections) means "custom". */
+  source?: "custom" | "builtIn";
+  createdAt?: number;
+}
+/** Provider block of the built-in agent catalog (`list_built_in_agents`). */
+export interface BuiltInAgentProviderView {
+  id: string;
+  displayName: string;
+  sourceUrl: string;
+  sourceRevision: string;
+  license: string;
+}
+
+/** One division (section) of the built-in catalog. `icon` is a lucide
+ *  name, `color` a hex swatch used for badges. */
+export interface BuiltInAgentDivisionView {
+  id: string;
+  order: number;
+  icon: string;
+  color: string;
+  label: string;
+  count: number;
+  enabledCount: number;
+}
+
+/** One built-in catalog agent. `icon` is an emoji (null → fallback glyph). */
+export interface BuiltInAgentView {
+  id: string;
+  divisionId: string;
+  name: string;
+  description: string;
+  icon: string | null;
+  enabled: boolean;
+}
+
+/** The full built-in catalog view (`list_built_in_agents`). */
+export interface BuiltInAgentCatalogView {
+  provider: BuiltInAgentProviderView;
+  divisions: BuiltInAgentDivisionView[];
+  agents: BuiltInAgentView[];
+}
+
+/** Full prompt of a built-in agent (`get_built_in_agent_prompt`). */
+export interface BuiltInAgentPrompt {
+  id: string;
+  prompt: string;
+  promptHash: string;
+}
+
+/** Send-time resolution of an enabled built-in agent
+ *  (`resolve_enabled_built_in_agent`); fails when the agent is disabled. */
+export interface ResolvedBuiltInAgent {
+  id: string;
+  name: string;
+  icon: string | null;
+  prompt: string;
+  promptHash: string;
+}
+
+/** Where a custom prompt file lives: `<root>/.ccgui/prompts/` or the
+ *  app-home `~/.ccgui-next/prompts/`. */
+export type PromptScope = "workspace" | "global";
+
+/** A custom prompt (`prompts_list`): one markdown file with `---`
+ *  frontmatter (`description`, `argument-hint`); `name` is the filename
+ *  stem, `path` the absolute file path. */
+export interface CustomPromptEntry {
+  name: string;
+  path: string;
+  description?: string;
+  argumentHint?: string;
+  content: string;
+  scope: PromptScope;
+}
+
+/** Prompt directories for a workspace root (`prompts_dirs`). */
+export interface PromptDirs {
+  workspace: string;
+  global: string;
+}
 
 export interface GitFileEntry {
   path: string;
@@ -790,6 +880,60 @@ export const ipc = {
    *  distinguished by `entry.kind`. */
   listSlashCommands: (path: string) =>
     withGrantRetry(() => invoke<SlashCommandEntry[]>("list_slash_commands", { path })),
+  // agents — user personas stored in ~/.ccgui-next/agents.json (app home,
+  // so no grant flow); picked via the composer `#` menu, managed in
+  // settings. agent_update takes a partial; absent fields stay unchanged.
+  listAgents: () => invoke<AgentConfig[]>("agent_list"),
+  addAgent: (input: { name: string; prompt?: string; icon?: string }) =>
+    invoke<AgentConfig>("agent_add", input),
+  updateAgent: (id: string, updates: { name?: string; prompt?: string; icon?: string }) =>
+    invoke<boolean>("agent_update", { id, ...updates }),
+  deleteAgent: (id: string) => invoke<boolean>("agent_delete", { id }),
+  // built-in agent catalog — bundled read-only personas (resources/
+  // agent-catalogs); enabled ids live in app settings. The composer `#`
+  // menu merges enabled ones; sendPrompt resolves the current prompt via
+  // resolveEnabledBuiltInAgent at send time.
+  listBuiltInAgents: (locale: string) =>
+    invoke<BuiltInAgentCatalogView>("list_built_in_agents", { locale }),
+  setBuiltInAgentEnabled: (agentId: string, enabled: boolean) =>
+    invoke<null>("set_built_in_agent_enabled", { agentId, enabled }),
+  setBuiltInAgentDivisionEnabled: (divisionId: string, enabled: boolean) =>
+    invoke<null>("set_built_in_agent_division_enabled", { divisionId, enabled }),
+  getBuiltInAgentPrompt: (agentId: string) =>
+    invoke<BuiltInAgentPrompt>("get_built_in_agent_prompt", { agentId }),
+  resolveEnabledBuiltInAgent: (agentId: string) =>
+    invoke<ResolvedBuiltInAgent>("resolve_enabled_built_in_agent", { agentId }),
+  // custom prompts — markdown + frontmatter files under
+  // <root>/.ccgui/prompts (workspace scope) or ~/.ccgui-next/prompts
+  // (global scope); picked via the composer `!` menu, managed in settings.
+  listPrompts: (path: string) =>
+    withGrantRetry(() => invoke<CustomPromptEntry[]>("prompts_list", { path })),
+  createPrompt: (
+    path: string,
+    scope: PromptScope,
+    input: { name: string; description?: string; argumentHint?: string; content: string },
+  ) =>
+    withGrantRetry(() =>
+      invoke<CustomPromptEntry>("prompts_create", { path, scope, ...input }),
+    ),
+  /** Partial update keyed by the entry's current file path. */
+  updatePrompt: (
+    path: string,
+    promptPath: string,
+    updates: { name?: string; description?: string; argumentHint?: string; content?: string },
+  ) =>
+    withGrantRetry(() =>
+      invoke<CustomPromptEntry>("prompts_update", { path, promptPath, updates }),
+    ),
+  deletePrompt: (path: string, promptPath: string) =>
+    withGrantRetry(() => invoke<boolean>("prompts_delete", { path, promptPath })),
+  /** Move a prompt file between the workspace and global directories. */
+  movePrompt: (path: string, promptPath: string, scope: PromptScope) =>
+    withGrantRetry(() =>
+      invoke<CustomPromptEntry>("prompts_move", { path, promptPath, scope }),
+    ),
+  /** Absolute prompts directories for a workspace root (settings display). */
+  promptsDirs: (path: string) => invoke<PromptDirs>("prompts_dirs", { path }),
   // granted directories (desktop-only commands; the settings list hides on web)
   listGrantedRoots: () => invoke<string[]>("list_granted_roots"),
   /** Directory a grant for `path` would cover (path itself when a dir, else

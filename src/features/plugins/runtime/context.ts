@@ -15,6 +15,7 @@ import {
   sessionMenuRegistry,
   settingsRegistry,
   statusBarRegistry,
+  composerStatusRegistry,
   timelineRowRegistry,
 } from "@ccgui/plugin-sdk";
 import type {
@@ -188,6 +189,17 @@ export function createPluginContext(
         requirePermission("ui:status-bar");
         return track(
           statusBarRegistry.register({
+            id: scopedPluginId(id, def.key),
+            component: def.component,
+            order: def.order,
+            zone: def.zone,
+          }),
+        );
+      },
+      registerComposerStatusItem(def) {
+        requirePermission("ui:composer-status");
+        return track(
+          composerStatusRegistry.register({
             id: scopedPluginId(id, def.key),
             component: def.component,
             order: def.order,

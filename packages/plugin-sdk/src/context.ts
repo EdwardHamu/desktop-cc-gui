@@ -68,6 +68,17 @@ export interface PluginContext {
       key?: string;
       component: ComponentType;
       order?: number;
+      /** Placement zone (0.3.8): "start" = left-aligned zone; omitted/"end"
+       *  = legacy slot after sync status, before version. */
+      zone?: "start" | "end";
+    }): Disposer;
+    /** Composer status-row chip (permission `ui:composer-status`, 0.3.9):
+     *  renders in the composer's status row (branch/context meter row),
+     *  left group after the branch switcher. */
+    registerComposerStatusItem(def: {
+      key?: string;
+      component: ComponentType;
+      order?: number;
     }): Disposer;
     /** Command palette entry (plan §4.2 #9). */
     registerCommand(def: {
