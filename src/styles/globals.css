@@ -147,7 +147,7 @@ body {
    * exact pair this thumb used to hardcode per theme, so the old `.dark`
    * overrides below are gone. */
   background-color: var(--color-background-tertiary-hover);
-  border: 2px solid transparent;
+  border: 2px solid rgb(255 255 255 / 0.14);
   border-radius: 999px;
   background-clip: padding-box;
 }
@@ -485,11 +485,11 @@ input[type="password"]::-ms-clear {
   display: block;
 }
 
-/* Transparent scrim: retain the layer without darkening the wallpaper. */
+/* Darkening scrim; opacity is driven inline from the darken setting. */
 .workspace-wallpaper-scrim {
   position: absolute;
   inset: 0;
-  background-color: transparent;
+  background-color: #000;
 }
 
 /* While a wallpaper is on, the shell's opaque canvases go translucent so it
@@ -545,4 +545,66 @@ input[type="password"]::-ms-clear {
   background-color: transparent;
   -webkit-backdrop-filter: blur(10px) saturate(125%);
   backdrop-filter: blur(10px) saturate(125%);
+}
+
+/* Uniform border color across light/dark and interaction states. Only color is
+ * overridden: existing zero-width/none borders stay absent. The important rule
+ * deliberately beats colored utilities, opacity modifiers and inline colors. */
+*,
+::before,
+::after {
+  border-color: rgb(255 255 255 / 0.14) !important;
+}
+
+/* Sidebar text uses one semantic color, including interaction states.
+ * Leave explicit SVG colors alone; currentColor icons inherit their host. */
+[data-chat-sidebar],
+[data-chat-sidebar] :where(:not(svg, svg *)) {
+  color: var(--color-text-primary) !important;
+}
+
+[data-chat-sidebar] input::placeholder,
+[data-chat-sidebar] textarea::placeholder {
+  color: var(--color-text-primary) !important;
+  opacity: 1;
+}
+
+/* Timeline display surfaces: normalize existing colored backgrounds to 30%.
+ * Keep transparent semantic backgrounds transparent; never fade whole nodes.
+ * Scoped to DOM descendants so shared components elsewhere are unchanged. */
+[data-virtual-inner] .bg-bubble-user {
+  background-color: color-mix(in srgb, var(--color-bubble-user) 30%, transparent);
+}
+
+[data-virtual-inner] .from-bubble-user {
+  background-image: linear-gradient(to top, color-mix(in srgb, var(--color-bubble-user) 30%, transparent), transparent);
+}
+
+[data-virtual-inner] :is([class~="bg-white/15"], [class~="bg-white/20"], [class~="bg-white/25"], [class~="hover:bg-white/40"]:hover) {
+  background-color: rgb(255 255 255 / 0.3);
+}
+
+[data-virtual-inner] [class~="bg-emerald-500/10"] {
+  background-color: color-mix(in srgb, var(--color-emerald-500) 30%, transparent);
+}
+
+[data-virtual-inner] :is([class~="bg-red-500/10"], [class~="bg-red-500/5"]) {
+  background-color: color-mix(in srgb, var(--color-red-500) 30%, transparent);
+}
+
+[data-virtual-inner] .bg-current {
+  background-color: color-mix(in srgb, currentColor 30%, transparent);
+}
+
+[data-virtual-inner] .bg-button-primary {
+  background-color: color-mix(in srgb, var(--color-button-primary) 30%, transparent);
+}
+
+[data-virtual-inner] .bg-overlay-backdrop {
+  background-color: rgb(0 0 0 / 0.3);
+}
+
+/* Preserve the transparent hover state over colored diff rows. */
+[data-virtual-inner] [class~="hover:bg-background-secondary-hover/40"]:hover {
+  background-color: color-mix(in srgb, var(--color-background-secondary-hover) 30%, transparent);
 }

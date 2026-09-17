@@ -1,4 +1,12 @@
 export const zh = {
+  windowTitleBar: {
+    label: "窗口标题栏",
+    minimize: "最小化",
+    maximize: "最大化",
+    restore: "还原窗口",
+    close: "关闭窗口",
+    actionFailed: "窗口操作失败，请重试",
+  },
   common: {
     confirm: "确认",
     showPassword: "显示明文",

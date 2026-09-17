@@ -218,6 +218,7 @@ export function AiChatSidebar({
   return (
     <aside
       ref={rootRef}
+      data-chat-sidebar
       style={{ width }}
       className={cx(
         "chat-glass-surface relative flex h-full shrink-0 flex-col overflow-hidden bg-transparent select-none",
@@ -229,7 +230,7 @@ export function AiChatSidebar({
       {!flat && (
         <div
           data-tauri-drag-region
-          className="flex h-10 w-full shrink-0 items-center justify-end gap-1 border-b border-separator-border px-3"
+          className="chat-glass-surface relative flex h-10 w-full shrink-0 items-center justify-end gap-1 border-b border-separator-border bg-transparent px-3"
         >
           <button
             type="button"

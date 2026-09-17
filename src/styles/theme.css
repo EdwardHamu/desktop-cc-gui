@@ -228,7 +228,7 @@
    * --------------------------------------------------------------------------*/
   --color-surface-frosted:        rgb(255 255 255 / 0.82);
   --color-surface-frosted-strong: rgb(255 255 255 / 0.92);
-  --color-surface-frosted-border: rgb(255 255 255 / 0.55);
+  --color-surface-frosted-border: rgb(255 255 255 / 0.14);
   --blur-frosted:                 16px;
 
   /* Sidebar session status dots (globals.css .sidebar-thread-status-*):
@@ -237,24 +237,24 @@
   --color-status-unseen:    var(--color-green-500);
 
   /* Border */
-  --color-border-button-default:   var(--color-neutral-200);
-  --color-border-button-hover:     var(--color-neutral-300);
-  --color-border-button-active:    var(--color-neutral-400);
-  --color-border-button-white:     var(--color-white);
+  --color-border-button-default:   rgb(255 255 255 / 0.14);
+  --color-border-button-hover:     rgb(255 255 255 / 0.14);
+  --color-border-button-active:    rgb(255 255 255 / 0.14);
+  --color-border-button-white:     rgb(255 255 255 / 0.14);
   /* The system had no red border. Matches text/error/primary so an invalid
      field's edge and its message are the same red. */
-  --color-border-error-default:    var(--color-red-500);
-  --color-border-checkbox-default: var(--color-neutral-300);
-  --color-border-checkbox-hover:   var(--color-neutral-400);
-  --color-border-checkbox-active:  var(--color-neutral-400);
-  --color-border-component-detail-container: var(--color-neutral-200);
-  --color-border-ai-profile-card:             var(--color-neutral-200);
-  --color-border-table:            var(--color-neutral-200);
-  --color-border-button-group:     var(--color-neutral-200);
-  --color-border-sidebar-profile-hover: var(--color-neutral-300);
-  --color-separator-border:        var(--color-neutral-200);
-  --color-separator-border-strong: var(--color-neutral-200);
-  --color-border-focus-ring:       var(--color-accent-500);
+  --color-border-error-default:    rgb(255 255 255 / 0.14);
+  --color-border-checkbox-default: rgb(255 255 255 / 0.14);
+  --color-border-checkbox-hover:   rgb(255 255 255 / 0.14);
+  --color-border-checkbox-active:  rgb(255 255 255 / 0.14);
+  --color-border-component-detail-container: rgb(255 255 255 / 0.14);
+  --color-border-ai-profile-card:             rgb(255 255 255 / 0.14);
+  --color-border-table:            rgb(255 255 255 / 0.14);
+  --color-border-button-group:     rgb(255 255 255 / 0.14);
+  --color-border-sidebar-profile-hover: rgb(255 255 255 / 0.14);
+  --color-separator-border:        rgb(255 255 255 / 0.14);
+  --color-separator-border-strong: rgb(255 255 255 / 0.14);
+  --color-border-focus-ring:       rgb(255 255 255 / 0.14);
 
   /* State */
   --color-state-success-text: var(--color-lime-800);
@@ -376,7 +376,7 @@
    * what separates the floating panel from the canvas behind it. */
   --color-surface-frosted:        rgb(28 28 28 / 0.78);
   --color-surface-frosted-strong: rgb(28 28 28 / 0.90);
-  --color-surface-frosted-border: rgb(255 255 255 / 0.10);
+  --color-surface-frosted-border: rgb(255 255 255 / 0.14);
 
   /* Sidebar status dots read brighter against the dark canvas. */
   --color-status-streaming: var(--color-blue-400);
@@ -472,21 +472,21 @@
   --color-notification-success-foreground:     var(--color-lime-300);
 
   /* Borders and separators */
-  --color-border-button-default:   var(--color-neutral-700);
-  --color-border-button-hover:     var(--color-neutral-500);
-  --color-border-button-active:    var(--color-neutral-600);
-  --color-border-button-white:     var(--color-zinc-800);
-  --color-border-error-default:    var(--color-red-900);
-  --color-border-checkbox-default: var(--color-neutral-700);
-  --color-border-checkbox-hover:   var(--color-neutral-500);
-  --color-border-checkbox-active:  var(--color-neutral-500);
-  --color-border-component-detail-container: var(--color-neutral-800);
-  --color-border-ai-profile-card:             var(--color-neutral-800);
-  --color-border-table:            var(--color-neutral-800);
-  --color-border-button-group:     color-mix(in srgb, var(--color-neutral-600) 60%, transparent);
-  --color-border-sidebar-profile-hover: var(--color-neutral-600);
-  --color-separator-border:        var(--color-neutral-800);
-  --color-separator-border-strong: var(--color-neutral-700);
+  --color-border-button-default:   rgb(255 255 255 / 0.14);
+  --color-border-button-hover:     rgb(255 255 255 / 0.14);
+  --color-border-button-active:    rgb(255 255 255 / 0.14);
+  --color-border-button-white:     rgb(255 255 255 / 0.14);
+  --color-border-error-default:    rgb(255 255 255 / 0.14);
+  --color-border-checkbox-default: rgb(255 255 255 / 0.14);
+  --color-border-checkbox-hover:   rgb(255 255 255 / 0.14);
+  --color-border-checkbox-active:  rgb(255 255 255 / 0.14);
+  --color-border-component-detail-container: rgb(255 255 255 / 0.14);
+  --color-border-ai-profile-card:             rgb(255 255 255 / 0.14);
+  --color-border-table:            rgb(255 255 255 / 0.14);
+  --color-border-button-group:     rgb(255 255 255 / 0.14);
+  --color-border-sidebar-profile-hover: rgb(255 255 255 / 0.14);
+  --color-separator-border:        rgb(255 255 255 / 0.14);
+  --color-separator-border-strong: rgb(255 255 255 / 0.14);
 
   /* Figma's dark table status pairs. */
   --color-status-lime-background:   transparent;
@@ -579,25 +579,25 @@
 
   --color-surface-frosted:        var(--color-surface-frosted);
   --color-surface-frosted-strong: var(--color-surface-frosted-strong);
-  --color-surface-frosted-border: var(--color-surface-frosted-border);
+  --color-surface-frosted-border: rgb(255 255 255 / 0.14);
   --blur-frosted:                 var(--blur-frosted);
 
-  --color-border-button-default:   var(--color-border-button-default);
-  --color-border-button-hover:     var(--color-border-button-hover);
-  --color-border-button-active:    var(--color-border-button-active);
-  --color-border-button-white:     var(--color-border-button-white);
-  --color-border-error-default:    var(--color-border-error-default);
-  --color-border-checkbox-default: var(--color-border-checkbox-default);
-  --color-border-checkbox-hover:   var(--color-border-checkbox-hover);
-  --color-border-checkbox-active:  var(--color-border-checkbox-active);
-  --color-border-component-detail-container: var(--color-border-component-detail-container);
-  --color-border-ai-profile-card:             var(--color-border-ai-profile-card);
-  --color-border-table:            var(--color-border-table);
-  --color-border-button-group:     var(--color-border-button-group);
-  --color-border-sidebar-profile-hover: var(--color-border-sidebar-profile-hover);
-  --color-separator-border:        var(--color-separator-border);
-  --color-separator-border-strong: var(--color-separator-border-strong);
-  --color-border-focus-ring:       var(--color-border-focus-ring);
+  --color-border-button-default:   rgb(255 255 255 / 0.14);
+  --color-border-button-hover:     rgb(255 255 255 / 0.14);
+  --color-border-button-active:    rgb(255 255 255 / 0.14);
+  --color-border-button-white:     rgb(255 255 255 / 0.14);
+  --color-border-error-default:    rgb(255 255 255 / 0.14);
+  --color-border-checkbox-default: rgb(255 255 255 / 0.14);
+  --color-border-checkbox-hover:   rgb(255 255 255 / 0.14);
+  --color-border-checkbox-active:  rgb(255 255 255 / 0.14);
+  --color-border-component-detail-container: rgb(255 255 255 / 0.14);
+  --color-border-ai-profile-card:             rgb(255 255 255 / 0.14);
+  --color-border-table:            rgb(255 255 255 / 0.14);
+  --color-border-button-group:     rgb(255 255 255 / 0.14);
+  --color-border-sidebar-profile-hover: rgb(255 255 255 / 0.14);
+  --color-separator-border:        rgb(255 255 255 / 0.14);
+  --color-separator-border-strong: rgb(255 255 255 / 0.14);
+  --color-border-focus-ring:       rgb(255 255 255 / 0.14);
 
   --color-state-success-text: var(--color-state-success-text);
   --color-state-success-base: var(--color-state-success-base);

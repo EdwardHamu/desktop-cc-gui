@@ -242,7 +242,7 @@ export const MessageRow = memo(function MessageRow({
   }
   if (message.role === "user") {
     return (
-      <div className="group -mr-1.5 ml-auto flex w-fit max-w-[85%] flex-col items-end">
+      <div className="group ml-auto flex w-fit max-w-[85%] flex-col items-end">
         <div className="flex flex-col rounded-xl bg-bubble-user px-3.5 py-2.5 text-left text-body-regular whitespace-pre-wrap break-words text-text-white">
           <CollapsibleMessage>
             {message.images && message.images.length > 0 && (
@@ -419,7 +419,7 @@ export const MessageTimeline = memo(function MessageTimeline({
         <div
           data-virtual-inner
           style={{ height: virtualizer.getTotalSize(), position: "relative" }}
-          className="chat-glass-surface mx-auto max-w-[750px]"
+          className="chat-glass-surface mx-auto max-w-[750px] rounded-2xl"
         >
           {virtualizer.getVirtualItems().map((item) => {
             const isTail = item.index >= rows.length;
@@ -431,8 +431,10 @@ export const MessageTimeline = memo(function MessageTimeline({
                 style={{
                   position: "absolute",
                   top: 0,
-                  left: 0,
-                  width: "100%",
+                  // Absolute virtual rows do not follow the parent's padding.
+                  // Opposing insets reserve a real 10px gutter on both sides.
+                  left: 10,
+                  right: 10,
                   transform: `translateY(${item.start}px)`,
                 }}
                 className="py-2"

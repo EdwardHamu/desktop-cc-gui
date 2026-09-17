@@ -1,6 +1,14 @@
 import type { Messages } from "./zh";
 
 export const en: Messages = {
+  windowTitleBar: {
+    label: "Window title bar",
+    minimize: "Minimize",
+    maximize: "Maximize",
+    restore: "Restore window",
+    close: "Close window",
+    actionFailed: "Window action failed. Please retry.",
+  },
   common: {
     confirm: "Confirm",
     showPassword: "Show password",

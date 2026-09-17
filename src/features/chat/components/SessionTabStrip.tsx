@@ -10,11 +10,6 @@ import { cx } from "@/utils/cx";
 import { ContextMenu } from "@/components/context-menu";
 import { EngineIcon } from "@/components/foundations/icons/engine-icon";
 
-// Overlay titlebar leaves the native traffic lights floating over the
-// strip's left edge on macOS; other platforms keep their own titlebar.
-const IS_MAC =
-  typeof navigator !== "undefined" && /macintosh|mac os x/i.test(navigator.userAgent);
-
 // Interactive elements keep their click behavior; any other press inside the
 // strip (empty padding, container wrappers, panel header blanks) starts a
 // window drag. data-tauri-drag-region alone only fires when the press lands
@@ -56,9 +51,6 @@ interface SessionTabStripProps {
   actions?: ReactNode;
   /** Node pinned left of the tabs (e.g. a sidebar expand button). */
   leading?: ReactNode;
-  /** Reserve the macOS traffic-light inset; turn off while the full-height
-   *  sidebar owns the titlebar's left edge. Default true. */
-  trafficLightInset?: boolean;
 }
 
 /** Custom tab icon when provided, else the engine brand mark. */
@@ -327,7 +319,6 @@ export function SessionTabStrip({
   actions,
   onNew,
   leading,
-  trafficLightInset = true,
 }: SessionTabStripProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stripRef = useRef<HTMLDivElement>(null);
@@ -400,8 +391,7 @@ export function SessionTabStrip({
       ref={stripRef}
       data-tauri-drag-region
       className={cx(
-        "flex h-10 shrink-0 items-center border-b border-separator-border bg-background-primary-default select-none",
-        IS_MAC && trafficLightInset && "pl-[80px]",
+        "chat-glass-surface relative flex h-10 shrink-0 items-center border-b border-separator-border bg-transparent select-none",
       )}
     >
       {leading && <div className="flex h-full shrink-0 items-center pl-2">{leading}</div>}

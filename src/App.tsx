@@ -13,6 +13,7 @@ import { CloseConfirmDialogHost } from "@/components/dialogs";
 import { installCloseConfirm } from "@/lib/close-confirm";
 import { startShortcutRuntime } from "@/features/shortcuts/runtime";
 import { ShortcutsGuideModal } from "@/features/shortcuts/ShortcutsGuideModal";
+import { WindowTitleBar } from "@/features/window-chrome/WindowTitleBar";
 import { WorkspaceWallpaperGate } from "@/features/theme/WorkspaceWallpaperGate";
 
 // Settings is a rare route; load it on demand so startup ships less JS.
@@ -57,7 +58,12 @@ export default function App() {
         {/* ChatPage stays mounted on every route; /settings only adds the
             modal overlay on top, so opening/closing settings never rebuilds
             the chat tree. */}
-        <ChatPage />
+        <div className="flex h-dvh flex-col overflow-hidden">
+          <WindowTitleBar />
+          <div className="min-h-0 flex-1">
+            <ChatPage />
+          </div>
+        </div>
         {/* ⌘K command palette (plan §4.2 #9); a pure projection of
             commandRegistry, mounted once for the whole app. */}
         <CommandPalette />

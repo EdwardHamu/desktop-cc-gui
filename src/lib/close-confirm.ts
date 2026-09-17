@@ -33,6 +33,11 @@ export function closeConfirmPending(): boolean {
   return pending;
 }
 
+/** Internal titlebar uses the same confirmation without racing native listener setup. */
+export function requestAppClose(): void {
+  if (!isWeb) setPending(true);
+}
+
 export function cancelAppClose(): void {
   setPending(false);
 }
@@ -56,6 +61,6 @@ export function installCloseConfirm(): void {
   installed = true;
   void getCurrentWindow().onCloseRequested((event) => {
     event.preventDefault();
-    setPending(true);
+    requestAppClose();
   });
 }

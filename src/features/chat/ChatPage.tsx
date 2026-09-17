@@ -5,7 +5,6 @@ import { SessionTabStrip } from "./components/SessionTabStrip";
 import { ErrorBanner } from "./components/ErrorBanner";
 import type { ComposerInputHandle } from "@/components/application/ai-chat/ai-chat-composer";
 import { AppStatusBar } from "@/components/application/app-status-bar/app-status-bar";
-import { isWeb } from "@/lib/platform";
 import PanelLeftOpen from "lucide-react/dist/esm/icons/panel-left-open";
 import { TerminalDock } from "@/features/terminal/TerminalDock";
 import { useTerminalStore } from "@/features/terminal/store";
@@ -29,14 +28,6 @@ import { ChatCenterPane } from "./ChatCenterPane";
 // Side-effect import: registers the builtin files/changes tabs into
 // panelTabRegistry (plan §4.2 #4).
 import "./panel-tabs";
-
-// Windows keeps its native titlebar (titleBarStyle Overlay is macOS-only), so
-// the caption row sits directly on the app background with no visual break —
-// draw a hairline under it. Web mode has browser chrome; skip there.
-const NEEDS_TITLEBAR_HAIRLINE =
-  !isWeb &&
-  typeof navigator !== "undefined" &&
-  /windows/i.test(navigator.userAgent);
 
 // Below Tailwind's xl breakpoint the side panel and the chat column cannot
 // both be comfortable, so the panel defaults to collapsed there. It stays
@@ -171,7 +162,7 @@ export default function ChatPage() {
   return (
     <div
       className={cx(
-        "relative flex h-dvh w-full overflow-hidden bg-background-secondary-default",
+        "relative flex h-full w-full overflow-hidden bg-background-secondary-default",
         // Phones with `viewport-fit=cover` (index.html) lay the app under the
         // status bar/notch: without the inset the tab strip — and with it the
         // only way to switch sessions — sits behind the iOS chrome, which is
@@ -180,7 +171,6 @@ export default function ChatPage() {
         "pt-[env(safe-area-inset-top)]",
         // Same for the home indicator: it overlays AppStatusBar otherwise.
         "pb-[env(safe-area-inset-bottom)]",
-        NEEDS_TITLEBAR_HAIRLINE && "border-t border-separator-border",
         dragging && "cursor-col-resize select-none",
       )}
     >
@@ -219,7 +209,6 @@ export default function ChatPage() {
           closeLabel={t("common.close")}
           onReorder={handleTabReorder}
           onNew={handleNewSession}
-          trafficLightInset={sidebarCollapsed && !isWeb}
           leading={
             sidebarCollapsed ? (
               <button
