@@ -48,7 +48,7 @@ import {
   settleLiveRows,
   untrackRun,
 } from "./store/stream";
-import { mergeUsage } from "./usage";
+import { mergeUsage, parseUsage } from "./usage";
 import {
   dropRunUsage,
   firstLineTitle,
@@ -80,7 +80,6 @@ import {
 import { emitSessionActivated } from "@/features/plugins/runtime/events";
 import { appendCommittedRows, mergeExternalSessions, preserveUnscannedSessions, visibleSessions } from "./store/session-utils";
 import type { ChatStore } from "./store/types";
-import { mergeUsage } from "./usage";
 
 // Facade re-exports: callers keep importing everything from "../store".
 export { parseDraftSessionKey, sessionKey } from "./store/persistence";
@@ -402,8 +401,14 @@ export const useChatStore = create<ChatStore>((set, get) => {
         (candidate) => get().bySession[candidate]?.settledRunIds?.includes(result.runId),
       );
       const settled = knownKey && get().bySession[knownKey]?.settledRunIds?.includes(result.runId);
+      // A turn that settled while invoke was pending still needs the adoption
+      // when its session announcement never arrived (an older backend, or a
+      // done that carried the id silently): without it the tab stays pending
+      // forever and no one clears its streaming flag. If onSession already
+      // migrated the state, bySession[key] is gone and this stays a no-op.
+      const stillPending = get().bySession[key] !== undefined;
       if (result.sessionId && !tab.sessionId
-          && (!settled || (knownKey && get().bySession[knownKey]?.interrupted))) {
+          && (!settled || (knownKey && get().bySession[knownKey]?.interrupted) || stillPending)) {
         // Preassigned native id (grok): adopt immediately.
         migrateSelectedAgent(tab.workspacePath, result.sessionId);
         const newKey = sessionKey(
@@ -478,11 +483,13 @@ export const useChatStore = create<ChatStore>((set, get) => {
             firstLineTitle(prompt),
           ),
         );
-      } else if (!runRouting.has(result.runId) && !settled) {
+      } else if (!runRouting.has(result.runId) && !settled && get().bySession[key]) {
         // The engine can announce its session id while the invoke is in
         // flight; onSession rekeys the run to the native key then, and
         // routing it back to the pre-send key would strand the live turn
-        // there while the tab renders the native key.
+        // there while the tab renders the native key. If the pending state
+        // is already gone the turn migrated (and possibly settled): routing
+        // the id back would resurrect a dead pending key on the next event.
         settleOrphanedRuns(set, routeRun(result.runId, key));
       }
       // Stop can precede native spawn while invoke is still in flight.
@@ -1522,7 +1529,10 @@ export const useChatStore = create<ChatStore>((set, get) => {
         untrackRun(runId);
         dropRunUsage(runId);
       }
-      await get().refreshSessionUsage(key);
+      // Refresh without holding Stop: the read can take three loads with
+      // backoff, and Stop must complete immediately (every other caller
+      // fires and forgets).
+      void get().refreshSessionUsage(key);
     },
 
     deleteSession: async (engine, sessionId) => {
@@ -1695,23 +1705,49 @@ export const useChatStore = create<ChatStore>((set, get) => {
       if (targetKey.startsWith("new:") || slashIdx < 1 || !engine || !sessionId) return;
       const before = get().bySession[targetKey];
       if (!before) return;
+      const beforeTotal = parseUsage(before.usage)?.total ?? null;
 
       try {
-        const page = await loadHistoryPage(
-          engine,
-          sessionId,
-          targetTab?.workspacePath ?? "",
-          100,
-        );
-        const latestUsage =
-          [...page.messages].reverse().find((m) => m.usage)?.usage ?? null;
-        if (latestUsage) {
+        // The engine flushes a turn's final usage into the transcript file a
+        // moment after the settle event fires, so a read that still shows the
+        // pre-turn snapshot is retried briefly instead of leaving the meter
+        // stale. A read that resolves *behind* a newer live report is dropped
+        // outright — live data wins and the file catches up on a later
+        // refresh; patching it back would resurrect the stale totals and drop
+        // the live context window.
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          const page = await loadHistoryPage(
+            engine,
+            sessionId,
+            targetTab?.workspacePath ?? "",
+            100,
+          );
+          const latestUsage =
+            [...page.messages].reverse().find((m) => m.usage)?.usage ?? null;
+          if (!latestUsage) return;
+          const current = get().bySession[targetKey]?.usage;
+          const latestTotal = parseUsage(latestUsage)?.total ?? null;
+          const currentTotal = parseUsage(current)?.total ?? null;
+          if (
+            latestTotal !== null &&
+            currentTotal !== null &&
+            latestTotal < currentTotal
+          ) {
+            return;
+          }
+          if (beforeTotal !== null && latestTotal === beforeTotal && attempt < 2) {
+            const wait = Promise.withResolvers<void>();
+            setTimeout(wait.resolve, 300);
+            await wait.promise;
+            continue;
+          }
           // The transcript carries the API's per-message usage and no window;
           // only the live result line reports one. Keep the window already
           // known for this session so the gauge holds its scale.
           patchSession(set, targetKey, {
-            usage: mergeUsage(latestUsage, get().bySession[targetKey]?.usage),
+            usage: mergeUsage(latestUsage, current),
           });
+          return;
         }
       } catch (error) {
         console.error("Failed to refresh session usage:", error);
@@ -1727,15 +1763,47 @@ if (import.meta.env.DEV) {
     useChatStore;
 }
 
-// Plugin API: 直接修改已有会话的 effort，跳过 refreshSessions 覆盖问题
-(window as unknown as {
-  __ccgui_patchSessionEffort: (engine: string, sessionId: string, workspacePath: string | undefined, effort: string) => void;
-}).__ccgui_patchSessionEffort = (engine, sessionId, workspacePath, effort) => {
-  const state = useChatStore.getState();
+/**
+ * Plugin API backend (ctx.sessions.setEffort, host:session): patch an
+ * EXISTING session's effort and persist it. Unknown keys are rejected — a
+ * wrong workspacePath/sessionId must not mint a ghost EMPTY_SESSION entry
+ * via patchSession. The owning tab's effort stamp is cleared (parity with
+ * setEffort's session branch) so refreshSessions cannot resurrect the
+ * pre-patch level.
+ */
+export function setPluginSessionEffort(
+  engine: string,
+  sessionId: string,
+  workspacePath: string,
+  effort: string,
+): void {
+  const trimmed = effort.trim();
+  if (!trimmed) {
+    throw new Error("sessions.setEffort: effort must be non-empty");
+  }
+  if (!engine || !sessionId) {
+    throw new Error("sessions.setEffort: engine and sessionId are required");
+  }
   const key = sessionKey(engine, sessionId, workspacePath);
-  patchSession(useChatStore.setState, key, { activeEffort: effort });
-  void ipc.rememberSessionEffort?.(engine, sessionId, effort).catch(() => {});
-};
+  const state = useChatStore.getState();
+  if (!state.bySession[key]) {
+    throw new Error(`sessions.setEffort: unknown session ${key}`);
+  }
+  patchSession(useChatStore.setState, key, { activeEffort: trimmed });
+  void ipc.rememberSessionEffort?.(engine, sessionId, trimmed)?.catch(() => {});
+  const clearStamp = <T extends { engine: string; sessionId: string | null; workspacePath: string; effort?: string }>(
+    t: T,
+  ): T =>
+    sessionKey(t.engine, t.sessionId, t.workspacePath) === key && t.effort !== undefined
+      ? { ...t, effort: undefined }
+      : t;
+  const openTabs = state.openTabs.map(clearStamp);
+  const active = state.active ? clearStamp(state.active) : state.active;
+  if (openTabs.some((t, i) => t !== state.openTabs[i]) || active !== state.active) {
+    useChatStore.setState({ openTabs, active });
+    persistTabs(openTabs, active);
+  }
+}
 
 // HMR swaps this module for a fresh store; without dispose the old module's
 // engine/session listeners keep firing into the dead store (and init on the

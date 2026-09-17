@@ -141,6 +141,23 @@ pub fn remember_session_provider(
     if provider_id.trim().is_empty() {
         return Ok(());
     }
+    // Same standard as run ids (send_message_inner): bounded length and a
+    // channel-id charset (plugin-prefixed ids use alnum/-/_; dots tolerated
+    // for hand-written configs). A hand-edited db must not smuggle odd keys
+    // into downstream lookups.
+    if engine.trim().is_empty() || engine.len() > 64 {
+        return Err("invalid engine".into());
+    }
+    if session_id.trim().is_empty() || session_id.len() > 256 {
+        return Err("invalid session id".into());
+    }
+    if provider_id.len() > 128
+        || !provider_id
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.'))
+    {
+        return Err("invalid provider id".into());
+    }
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)

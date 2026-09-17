@@ -648,6 +648,7 @@ impl ProcessRegistry {
         }
     }
 
+    #[cfg(test)]
     fn len(&self) -> usize {
         self.0.lock().map(|map| map.len()).unwrap_or(0)
     }
@@ -681,6 +682,21 @@ impl ProcessRegistry {
             }
             if let Some(entry) = map.get(from).cloned() {
                 map.insert(to, entry);
+            }
+        }
+    }
+
+    /// Drop a pre-spawn run-id reservation after a failed launch. Only the
+    /// placeholder (no child, pid 0) is removed — a registered run, real or
+    /// virtual, is never touched.
+    fn remove_reservation(&self, key: &str) {
+        if let Ok(mut map) = self.0.lock() {
+            let reserved = map
+                .get(key)
+                .map(|entry| entry.child.is_none() && entry.pid == 0)
+                .unwrap_or(false);
+            if reserved {
+                map.remove(key);
             }
         }
     }
@@ -1270,6 +1286,25 @@ impl Drop for RunContext {
     }
 }
 
+/// Remove leftover channel staging dirs (`claude-staging`/`grok-staging`
+/// under app_home) from a crashed run: they hold per-send credentials and
+/// must not linger on disk. Live runs recreate them per send, so sweeping
+/// at startup is safe. Only these two known names are touched.
+pub fn sweep_staging_dirs() {
+    let home = crate::paths::app_home();
+    for name in ["claude-staging", "grok-staging"] {
+        let dir = home.join(name);
+        if dir.exists() {
+            if let Err(error) = std::fs::remove_dir_all(&dir) {
+                eprintln!(
+                    "[engine] failed to sweep staging dir {}: {error}",
+                    dir.display()
+                );
+            }
+        }
+    }
+}
+
 fn cleanup_staged_files(paths: &[PathBuf]) {
     for path in paths {
         let result = if path.is_dir() { std::fs::remove_dir_all(path) } else { std::fs::remove_file(path) };
@@ -1306,6 +1341,7 @@ mod staging_tests {
                 preassigned_session_id: None, initial_model: None,
                 child: Arc::new(TokioMutex::new(child)), killed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 cleanup_files: vec![directory.clone()], stderr_buf: Arc::new(Mutex::new(String::new())),
+                stdout_plain_buf: Arc::new(Mutex::new(String::new())),
             };
             let task = tokio::spawn(async move {
                 if abort { std::future::pending::<()>().await; }
@@ -1390,8 +1426,11 @@ impl TurnCore {
 
     fn dispatch_event(&self, state: &mut TurnState, event: EngineEvent) {
         // Terminal state is monotonic, even if a CLI or its usage tail emits
-        // more data before exiting. Diagnostics may still be reported.
-        if (state.saw_done || state.saw_error) && !matches!(event, EngineEvent::Warn(_)) {
+        // more data before exiting: no late retry/content/warn event may
+        // revive a settled run. The one exception is SessionId — a done that
+        // raced the CLI's session announcement must still rekey/announce, or
+        // the conversation strands under its provisional key.
+        if (state.saw_done || state.saw_error) && !matches!(event, EngineEvent::SessionId(_)) {
             return;
         }
         match event {
@@ -1876,14 +1915,80 @@ pub async fn send_message_inner(
     {
         return Err("invalid run id".into());
     }
-    if state.processes.0.lock().map_err(|e| e.to_string())?.contains_key(&run_id) {
-        return Err("run id already active".into());
+    // Reserve the run id atomically, before the first await: a contains_key
+    // check here with the registry insert after spawn would let two
+    // concurrent sends carrying the same client id both pass, and the second
+    // insert would overwrite the first entry — orphaning its child (no key
+    // routes an interrupt to it) and streaming two runs under one runId.
+    // The placeholder owns the run's killed/reader_abort handles, so a Stop
+    // landing inside the launch window still settles the turn; every error
+    // path before the real registration drops the reservation.
+    let killed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let reader_abort = Arc::new(std::sync::OnceLock::new());
+    {
+        let mut map = state.processes.0.lock().map_err(|e| e.to_string())?;
+        if map.contains_key(&run_id) {
+            return Err("run id already active".into());
+        }
+        if map.len() >= MAX_CONCURRENT_RUNS {
+            return Err(format!(
+                "too many concurrent runs ({MAX_CONCURRENT_RUNS}); wait for one to finish"
+            ));
+        }
+        map.insert(
+            run_id.clone(),
+            ChildEntry {
+                child: None,
+                pid: 0,
+                run_id: run_id.clone(),
+                killed: Arc::clone(&killed),
+                reader_abort: Arc::clone(&reader_abort),
+            },
+        );
     }
-    if state.processes.len() >= MAX_CONCURRENT_RUNS {
-        return Err(format!(
-            "too many concurrent runs ({MAX_CONCURRENT_RUNS}); wait for one to finish"
-        ));
+    let reserved = run_id.clone();
+    let result = send_reserved(
+        state,
+        engine,
+        workspace_path,
+        session_id,
+        prompt,
+        image_paths,
+        model,
+        effort,
+        permission,
+        provider_id,
+        run_id,
+        killed,
+        reader_abort,
+    )
+    .await;
+    if result.is_err() {
+        state.processes.remove_reservation(&reserved);
     }
+    result
+}
+
+/// Body of [`send_message_inner`] once the run id is reserved: the caller id
+/// is used as-is (never regenerated — the frontend pre-routes events by it),
+/// and the placeholder's killed/reader_abort handles carry into the real
+/// registry entry so an interrupt from the launch window is honored.
+#[allow(clippy::too_many_arguments)]
+async fn send_reserved(
+    state: &crate::AppState,
+    engine: String,
+    workspace_path: String,
+    session_id: Option<String>,
+    prompt: String,
+    image_paths: Option<Vec<String>>,
+    model: Option<String>,
+    effort: Option<String>,
+    permission: Option<String>,
+    provider_id: Option<String>,
+    run_id: String,
+    killed: Arc<std::sync::atomic::AtomicBool>,
+    reader_abort: Arc<std::sync::OnceLock<tokio::task::AbortHandle>>,
+) -> Result<SendResult, String> {
     let launch = prepare_launch(
         &engine,
         &workspace_path,
@@ -1909,7 +2014,7 @@ pub async fn send_message_inner(
         if wsl_tp.is_some() {
             return Err(format!("引擎 {engine} 不支持远程工作区(WSL)"));
         }
-        return send_host_stream(state, launch, engine, run_id).await;
+        return send_host_stream(state, launch, engine, run_id, killed, reader_abort).await;
     }
     let (mut command, extra_cleanup, skip_local_cwd) = match &wsl_tp {
         Some(tp) => {
@@ -1973,14 +2078,12 @@ pub async fn send_message_inner(
         Ok(child) => child,
         Err(error) => {
             // Never strand the staging files build_command wrote (grok).
-            cleanup_staged_files(&launch.built.cleanup_files);
+            cleanup_staged_files(&cleanup_files);
             return Err(format!("failed to spawn {}: {error}", launch.bin));
         }
     };
 
     spawn_stdin_writer(&mut child, launch.built.stdin_payload);
-
-    let run_id = uuid::Uuid::new_v4().to_string();
     // Join a kill-on-close job before the run can settle: an orphaned
     // grandchild (claude's pwsh.exe/conhost.exe) must die with the run's
     // context, not accumulate outside every tree taskkill can still walk.
@@ -1996,14 +2099,12 @@ pub async fn send_message_inner(
             Some(pair) => pair,
             None => {
                 let _ = child.start_kill();
-                cleanup_staged_files(&launch.built.cleanup_files);
+                cleanup_staged_files(&cleanup_files);
                 return Err("missing stdout/stderr pipe after spawn".to_string());
             }
         }
     };
     let child = Arc::new(TokioMutex::new(child));
-    let killed = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let reader_abort = Arc::new(std::sync::OnceLock::new());
     state.processes.insert(
         run_id.clone(),
         ChildEntry {
@@ -2086,10 +2187,10 @@ async fn send_host_stream(
     launch: Launch,
     engine: String,
     run_id: String,
+    killed: Arc<std::sync::atomic::AtomicBool>,
+    reader_abort: Arc<std::sync::OnceLock<tokio::task::AbortHandle>>,
 ) -> Result<SendResult, String> {
     let pid = next_virtual_pid();
-    let killed = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let reader_abort = Arc::new(std::sync::OnceLock::new());
     let entry = ChildEntry {
         child: None,
         pid,

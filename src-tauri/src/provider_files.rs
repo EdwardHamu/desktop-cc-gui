@@ -406,29 +406,55 @@ fn base_content(target: &Target, default: &str) -> Result<String, String> {
 
 // ── Channel value extraction ────────────────────────────────────────────────
 
-/// Loader/hook env keys a stored channel must never write into a CLI's
-/// settings: they hand code execution to whoever wrote the config file.
-/// Prefix families (DYLD_/LD_) are matched by prefix, the rest exactly;
-/// comparison is case-insensitive because launchd/cmd env casing varies.
+/// Loader/hook/hijack env keys a stored channel must never write into a
+/// CLI's environment: they hand code execution or traffic interception to
+/// whoever wrote the config file. Prefix families (DYLD_/LD_, GIT_CONFIG_KEY/
+/// VALUE) are matched by prefix, the rest exactly; comparison is
+/// case-insensitive because launchd/cmd env casing varies.
+///
+/// Beyond loader hooks: PATH hijacks the CLI's spawned git/rg children;
+/// the proxy + NODE_EXTRA_CA_CERTS combo MITMs the CLI's HTTPS traffic;
+/// GIT_CONFIG_* / GIT_TEMPLATE_DIR / GIT_EXEC_PATH turn the app's own git
+/// calls into code execution; EDITOR/GIT_PAGER run when the CLI pages or
+/// opens an editor.
 fn is_blocked_env_key(key: &str) -> bool {
     let upper = key.to_ascii_uppercase();
-    if upper.starts_with("DYLD_") || upper.starts_with("LD_") {
+    if upper.starts_with("DYLD_")
+        || upper.starts_with("LD_")
+        || upper.starts_with("GIT_CONFIG_KEY_")
+        || upper.starts_with("GIT_CONFIG_VALUE_")
+    {
         return true;
     }
     matches!(
         upper.as_str(),
         "NODE_OPTIONS"
             | "NODE_REPL_EXTERNAL_MODULE"
+            | "NODE_EXTRA_CA_CERTS"
             | "BASH_ENV"
             | "ENV"
             | "SHELLOPTS"
             | "PYTHONSTARTUP"
             | "PYTHONINSPECT"
+            | "PYTHONPATH"
             | "RUBYOPT"
             | "PERL5OPT"
+            | "PATH"
+            | "HTTP_PROXY"
+            | "HTTPS_PROXY"
+            | "ALL_PROXY"
+            | "GIT_SSH"
             | "GIT_SSH_COMMAND"
+            | "GIT_CONFIG_GLOBAL"
+            | "GIT_CONFIG_SYSTEM"
+            | "GIT_CONFIG_COUNT"
+            | "GIT_TEMPLATE_DIR"
+            | "GIT_EXEC_PATH"
             | "SSH_ASKPASS"
             | "PROMPT_COMMAND"
+            | "EDITOR"
+            | "GIT_PAGER"
+            | "PAGER"
             | "IFS"
     )
 }
@@ -1072,10 +1098,28 @@ mod tests {
             Some("flat-model")
         );
 
-        let blocked =
-            serde_json::json!({ "env": { "NODE_OPTIONS": "--require ./x.js", "SAFE": "1" } });
+        let blocked = serde_json::json!({ "env": {
+            "NODE_OPTIONS": "--require ./x.js",
+            "PATH": "/tmp/evil-bin:/usr/bin",
+            "HTTPS_PROXY": "http://mitm.example:8080",
+            "NODE_EXTRA_CA_CERTS": "/tmp/evil-ca.pem",
+            "GIT_CONFIG_GLOBAL": "/tmp/evil-gitconfig",
+            "GIT_CONFIG_KEY_0": "core.hooksPath",
+            "EDITOR": "/tmp/evil-editor",
+            "SAFE": "1"
+        } });
         let env = channel_env("claude", &blocked).unwrap();
-        assert!(!env.contains_key("NODE_OPTIONS"));
+        for key in [
+            "NODE_OPTIONS",
+            "PATH",
+            "HTTPS_PROXY",
+            "NODE_EXTRA_CA_CERTS",
+            "GIT_CONFIG_GLOBAL",
+            "GIT_CONFIG_KEY_0",
+            "EDITOR",
+        ] {
+            assert!(!env.contains_key(key), "{key} must never be injected");
+        }
         assert_eq!(env.get("SAFE").map(String::as_str), Some("1"));
     }
 

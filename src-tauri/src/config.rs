@@ -156,26 +156,30 @@ fn is_official_provider(id: &str) -> bool {
 /// Helper to find a provider in a section by exact id or by plugin prefix/suffix match.
 /// For example, "custom_123" matches "plugin_model-switcher_custom_123",
 /// and "plugin_model-switcher_custom_123" matches "custom_123".
+/// More than one fuzzy candidate is an error: picking by insertion order
+/// could silently send the conversation to the wrong endpoint.
 pub(crate) fn find_provider<'a>(
     section: &'a ProviderSection,
     id: &str,
-) -> Option<(&'a str, &'a Value)> {
+) -> Result<Option<(&'a str, &'a Value)>, String> {
     if let Some((k, v)) = section.providers.get_key_value(id) {
-        return Some((k.as_str(), v));
+        return Ok(Some((k.as_str(), v)));
     }
-    // Check if any key ends with "_<id>" (caller passed id without plugin prefix)
-    for (k, v) in &section.providers {
-        if k.ends_with(&format!("_{id}")) {
-            return Some((k.as_str(), v));
-        }
+    // Fuzzy both ways: a key ending with "_<id>" (caller passed the id
+    // without its plugin prefix), or the id ending with "_<key>" (caller
+    // passed it with an extra prefix).
+    let mut matches = section
+        .providers
+        .iter()
+        .filter(|(k, _)| k.ends_with(&format!("_{id}")) || id.ends_with(&format!("_{k}")));
+    let first = matches.next();
+    if let Some((second, _)) = matches.next() {
+        let first_key = first.map(|(k, _)| k.as_str()).unwrap_or("");
+        return Err(format!(
+            "provider id {id} is ambiguous: matches {first_key} and {second}"
+        ));
     }
-    // Check if id ends with "_<k>" (caller passed id with extra prefix)
-    for (k, v) in &section.providers {
-        if id.ends_with(&format!("_{k}")) {
-            return Some((k.as_str(), v));
-        }
-    }
-    None
+    Ok(first.map(|(k, v)| (k.as_str(), v)))
 }
 
 /// Env a spawn should inject for `provider_id` on `engine`. Official / empty
@@ -201,10 +205,8 @@ pub(crate) fn resolve_provider(
         .section(engine)
         .ok_or_else(|| format!("unknown engine: {engine}"))?;
     crate::provider_files::migrate_legacy(engine, section)?;
-    let id = provider_id
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| section.current.as_deref().unwrap_or("").trim());
+    let explicit = provider_id.map(str::trim).filter(|s| !s.is_empty());
+    let id = explicit.unwrap_or_else(|| section.current.as_deref().unwrap_or("").trim());
     if id == DISABLED_PROVIDER_ID {
         return Err(format!("engine {engine} is disabled"));
     }
@@ -212,32 +214,21 @@ pub(crate) fn resolve_provider(
         return Ok(None);
     }
 
-    if let Some((_matched_key, provider)) = find_provider(section, id) {
+    if let Some((_matched_key, provider)) = find_provider(section, id)? {
         return Ok(Some(provider.clone()));
     }
 
-    // If an explicit provider_id was passed (e.g. from an old session or plugin discrepancy)
-    // but no longer exists directly in config, fall back to the engine's current provider
-    // instead of failing the send.
-    if let Some(current_id) = section
-        .current
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        if current_id == DISABLED_PROVIDER_ID {
-            return Err(format!("engine {engine} is disabled"));
-        }
-        if is_official_provider(current_id) {
-            return Ok(None);
-        }
-        if let Some((_matched_key, provider)) = find_provider(section, current_id) {
-            eprintln!("[config] provider {id} not found for {engine}, falling back to current provider: {current_id}");
-            return Ok(Some(provider.clone()));
-        }
+    if explicit.is_some() {
+        // An explicitly chosen channel that no longer resolves must not
+        // silently reroute the conversation to whatever channel is current:
+        // the user picked an endpoint. Fail the send so they can re-pick.
+        return Err(format!("provider {id} not found for engine {engine}"));
     }
 
-    eprintln!("[config] provider {id} not found for {engine}, falling back to official config");
+    // Only the stored current id may be stale (the channel was deleted out
+    // from under the config): fall back to the official config rather than
+    // fail every send.
+    eprintln!("[config] current provider {id} not found for {engine}, falling back to official config");
     Ok(None)
 }
 
@@ -372,7 +363,7 @@ fn set_current_provider_inner(
             && id != DISABLED_PROVIDER_ID
             && id != LEGACY_LOCAL_CONFIG_TOML_ID
         {
-            if let Some((matched_key, _)) = find_provider(section, &id) {
+            if let Some((matched_key, _)) = find_provider(section, &id)? {
                 section.current = Some(matched_key.to_string());
                 return Ok(());
             }
@@ -558,12 +549,32 @@ mod tests {
             Some("sk-test")
         );
 
-        // Stale id from old session falls back to current
-        let fallback = resolve_provider_env("claude", Some("deleted_channel_123")).unwrap();
-        assert_eq!(
-            fallback.get("ANTHROPIC_BASE_URL").map(String::as_str),
-            Some("https://tobapi.example.com")
+        // A stale explicit id must fail, not silently reroute the
+        // conversation to whatever channel happens to be current.
+        let stale = resolve_provider_env("claude", Some("deleted_channel_123"));
+        assert!(stale.is_err(), "stale explicit provider id must error");
+        assert!(stale.unwrap_err().contains("deleted_channel_123"));
+    }
+
+    #[test]
+    fn find_provider_fails_on_ambiguous_suffix_match() {
+        let _scratch = Scratch::new();
+        let mut section = ProviderSection::default();
+        section.providers.insert(
+            "plugin_a_custom_1".to_string(),
+            json!({"baseUrl": "https://a.example"}),
         );
+        section.providers.insert(
+            "plugin_b_custom_1".to_string(),
+            json!({"baseUrl": "https://b.example"}),
+        );
+        assert!(find_provider(&section, "custom_1").is_err());
+        // Exact id still wins over fuzzy candidates.
+        section
+            .providers
+            .insert("custom_1".to_string(), json!({"baseUrl": "https://exact.example"}));
+        let (key, _) = find_provider(&section, "custom_1").unwrap().unwrap();
+        assert_eq!(key, "custom_1");
     }
 
     #[test]

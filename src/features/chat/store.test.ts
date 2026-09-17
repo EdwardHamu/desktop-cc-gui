@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ipc, type SessionMeta } from "@/lib/ipc";
-import { useChatStore } from "./store";
+import { setPluginSessionEffort, useChatStore } from "./store";
 import { OPEN_TABS_KEY } from "./store/persistence";
 import { EMPTY_SESSION } from "./store/stream";
 
@@ -605,5 +605,55 @@ describe("refreshSessions and the not-yet-scanned session", () => {
       title: "VPN 一直超时",
       filePath: "s.jsonl",
     });
+  });
+});
+
+describe("setPluginSessionEffort (ctx.sessions.setEffort backend)", () => {
+  beforeEach(resetStore);
+
+  it("patches an existing session, persists it, and clears the tab stamp", () => {
+    const tab = {
+      engine: "codex",
+      sessionId: "s-effort",
+      workspacePath: WS,
+      effort: "low" as const,
+    };
+    const key = "codex/s-effort";
+    useChatStore.setState({
+      active: tab,
+      openTabs: [tab],
+      bySession: { [key]: { ...EMPTY_SESSION } },
+    });
+    vi.mocked(ipc.rememberSessionEffort).mockClear();
+
+    setPluginSessionEffort("codex", "s-effort", WS, "high");
+
+    expect(useChatStore.getState().bySession[key].activeEffort).toBe("high");
+    expect(ipc.rememberSessionEffort).toHaveBeenCalledWith("codex", "s-effort", "high");
+    // Stamps cleared so refreshSessions cannot resurrect the old level.
+    expect(useChatStore.getState().openTabs[0].effort).toBeUndefined();
+    expect(useChatStore.getState().active?.effort).toBeUndefined();
+    const persisted = JSON.parse(localStorage.getItem(OPEN_TABS_KEY) ?? "[]");
+    expect(persisted[0].effort).toBeUndefined();
+  });
+
+  it("rejects unknown sessions instead of minting a ghost entry", () => {
+    vi.mocked(ipc.rememberSessionEffort).mockClear();
+    expect(() => setPluginSessionEffort("codex", "nope", WS, "high")).toThrow(
+      "unknown session",
+    );
+    expect(useChatStore.getState().bySession["codex/nope"]).toBeUndefined();
+    expect(ipc.rememberSessionEffort).not.toHaveBeenCalled();
+  });
+
+  it("rejects an empty effort and missing ids", () => {
+    const key = "codex/s-effort";
+    useChatStore.setState({ bySession: { [key]: { ...EMPTY_SESSION } } });
+    expect(() => setPluginSessionEffort("codex", "s-effort", WS, "  ")).toThrow(
+      "non-empty",
+    );
+    expect(() => setPluginSessionEffort("", "s-effort", WS, "high")).toThrow(
+      "required",
+    );
   });
 });

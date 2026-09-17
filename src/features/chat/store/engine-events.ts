@@ -309,20 +309,22 @@ function onSession(
   // Resolve the workspace from the tab that owns this key — not from the
   // active tab. A first message sent on a background tab must not adopt the
   // foreground tab's workspace (the session would be orphaned there).
+  const state = deps.get();
+  const owner = state.openTabs.find(
+    (t) => sessionKey(t.engine, t.sessionId, t.workspacePath) === key,
+  );
+  const pendingCandidates = state.openTabs.filter(
+    (t) =>
+      t.engine === event.engine &&
+      t.sessionId === null &&
+      state.bySession[sessionKey(t.engine, null, t.workspacePath)] !==
+        undefined,
+  );
+  // With several pending tabs of one engine, guessing would pin the session
+  // onto an unrelated tab's workspace. Adopt only a unique candidate;
+  // otherwise fall back to the active tab's workspace.
   const tab =
-    deps
-      .get()
-      .openTabs.find(
-        (t) => sessionKey(t.engine, t.sessionId, t.workspacePath) === key,
-      ) ??
-    deps
-      .get()
-      .openTabs.find(
-        (t) =>
-          t.engine === event.engine &&
-          t.sessionId === null &&
-          deps.get().bySession[sessionKey(t.engine, null, t.workspacePath)] !== undefined,
-      );
+    owner ?? (pendingCandidates.length === 1 ? pendingCandidates[0] : undefined);
   const workspacePath =
     tab?.workspacePath ?? deps.get().active?.workspacePath ?? "";
   const newKey = sessionKey(event.engine, nativeId, workspacePath);
@@ -376,9 +378,27 @@ function onSession(
       cur && cur !== prev && cur.messages.length > 0
         ? [...prev.messages, ...cur.messages]
         : prev.messages;
+    // prev (the sender's live turn under the pending key) owns the scalar
+    // fields: queue, turnStartedAt, streaming and the active model/effort/
+    // provider stamps. cur is a placeholder built from EMPTY_SESSION by
+    // events that beat this session event to the native key — spreading it
+    // last would silently drop a queue the user filled mid-flight. cur keeps
+    // only what arrived under the native key: usage tails and settle records.
     const bySession = {
       ...s.bySession,
-      [newKey]: { ...prev, ...cur, messages },
+      [newKey]: {
+        ...cur,
+        ...prev,
+        messages,
+        usage: cur?.usage ?? prev.usage,
+        turnUsage: cur?.turnUsage ?? prev.turnUsage,
+        settledRunIds: [
+          ...new Set([
+            ...(prev.settledRunIds ?? []),
+            ...(cur && cur !== prev ? (cur.settledRunIds ?? []) : []),
+          ]),
+        ],
+      },
     };
     if (fromKey !== newKey) delete bySession[fromKey];
     const drafts = { ...s.drafts };
@@ -392,7 +412,7 @@ function onSession(
       s.active.engine === event.engine &&
       s.active.sessionId === null &&
       s.active.workspacePath === workspacePath
-        ? { ...s.active, sessionId: nativeId, effort: undefined }
+        ? { ...s.active, sessionId: nativeId, effort: undefined, provider: undefined }
         : s.active;
     return { bySession, drafts, streamingByKey, active: activeNext };
   });
@@ -414,7 +434,7 @@ function onSession(
           return t;
         }
         stamped = true;
-        return { ...t, sessionId: nativeId, effort: undefined };
+        return { ...t, sessionId: nativeId, effort: undefined, provider: undefined };
       }),
     );
     persistTabs(openTabs, s.active);
@@ -852,8 +872,7 @@ function onDone(event: EngineEventPayload, key: string, deps: EngineEventDeps) {
   // feature's own switch gates it (localStorage-backed, see usage-tracking.ts).
   recordTurnUsage(deps, event, key, finalUsage);
   // Native file changed; refresh list cache in background.
-  if (deps.refreshSessionUsage) void deps.refreshSessionUsage(key).catch(() => {});
-  else void ipc.rescanSessions().catch(() => {});
+  void ipc.rescanSessions().catch(() => {});
   deps.markUnseenIfBackground(key);
   // An interrupted turn settles here too: keep the queue parked — the user
   // stopped the session, the next message is theirs to send.
@@ -918,7 +937,9 @@ function adoptObservedRun(
 // Retain terminal run identities after routing is removed. A delayed retry
 // can otherwise fall back to sessionId and masquerade as a new observed run.
 // Bound this history; real new turns always carry a fresh runId.
-const settledRuns = new Map<string, "done" | "error">();
+// Exported like runRouting so tests can reset it — reusing one runId across
+// tests would otherwise leak the previous test's terminal state.
+export const settledRuns = new Map<string, "done" | "error">();
 const MAX_SETTLED_RUNS = 256;
 
 /** Resolve an event's session key (run routing, then session-id match) and
@@ -929,9 +950,10 @@ export function handleEngineEvents(
 ) {
   for (const event of events) {
     const settled = settledRuns.get(event.runId);
-    // EOF stderr/failure can follow Done. Keep that diagnostic, but never
-    // adopt the run again or drain its queue a second time.
-    if (settled && !(settled === "done" && (event.kind === "warn" || event.kind === "error"))) continue;
+    // EOF stderr/failure can follow Done, and the turn's final usage report
+    // can trail either terminal event. Keep those, but never adopt the run
+    // again or drain its queue a second time.
+    if (settled && !(event.kind === "usage" || (settled === "done" && (event.kind === "warn" || event.kind === "error")))) continue;
     const state = deps.get();
     let key = runRouting.get(event.runId) ?? Object.keys(state.bySession).find(
       (candidate) => state.bySession[candidate]?.settledRunIds?.includes(event.runId),
@@ -955,9 +977,20 @@ export function handleEngineEvents(
       }
     }
     if (state.bySession[key]?.settledRunIds?.includes(event.runId)) {
-      // Shutdown diagnostics remain visible, but cannot restart a turn or
-      // overwrite a newer turn's state.
-      if (event.kind === "warn" && !state.bySession[key]?.streaming) onWarn(event, key, deps);
+      // A usage report trailing the terminal event carries the turn's final
+      // occupancy. Re-read it from the transcript instead of patching the
+      // settled state — the file can lag the event, and refreshSessionUsage
+      // retries briefly for exactly that.
+      if (event.kind === "usage") {
+        void deps.refreshSessionUsage?.(key)?.catch(() => {});
+      } else if (
+        (event.kind === "warn" || event.kind === "error") &&
+        !state.bySession[key]?.streaming
+      ) {
+        // Shutdown diagnostics remain visible, but cannot restart a turn or
+        // overwrite a newer turn's state.
+        onWarn(event, key, deps);
+      }
       continue;
     }
 

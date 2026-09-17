@@ -86,17 +86,25 @@ fn stage_channel(
     built.cleanup_files.push(directory.clone());
     // Copy configuration inputs, including managed policy and user extensions.
     // Never link these: CLI writes must stay private. Exclude runtime caches.
+    // Symlinks are skipped, not followed: a link could point at sensitive
+    // paths outside the native config tree, and copied contents would strand
+    // in the private staging dir.
     if native_home.exists() {
         for entry in std::fs::read_dir(native_home).map_err(|e| format!("read grok home: {e}"))? {
             let entry = entry.map_err(|e| format!("read grok home entry: {e}"))?;
+            let file_type = entry
+                .file_type()
+                .map_err(|e| format!("read grok home entry type: {e}"))?;
+            if file_type.is_symlink() {
+                continue;
+            }
             let name = entry.file_name();
             let name_text = name.to_string_lossy();
-            let path = entry.path();
-            if (path.is_file() && !name_text.ends_with(".lock"))
+            if (file_type.is_file() && !name_text.ends_with(".lock"))
                 || ["skills", "agents", "rules", "hooks", "plugins", "memory"]
                     .contains(&name_text.as_ref())
             {
-                copy_config_input(&path, &directory.join(name), &mut Vec::new())
+                copy_config_input(&entry.path(), &directory.join(name), &mut Vec::new())
                     .map_err(|e| format!("copy grok configuration input: {e}"))?;
             }
         }
@@ -108,17 +116,29 @@ fn stage_channel(
     link_sessions(&sessions, &directory.join("sessions"))
         .map_err(|e| format!("link grok session history: {e}"))?;
     built.command.env("GROK_HOME", directory);
+    // An inherited GROK_CONFIG/GROK_CONFIG_PATH would override GROK_HOME
+    // inside the CLI and silently un-isolate the channel — the probe tests
+    // had to remove them explicitly because a shell can legitimately export
+    // them. Strip them on the production path too.
+    built.command.env_remove("GROK_CONFIG");
+    built.command.env_remove("GROK_CONFIG_PATH");
     Ok(())
 }
 
-// Follow config symlinks into private copies; reject cycles rather than linking
-// a writable path back into the native configuration tree.
+// Copy configuration inputs as private files. Symlinks are skipped (the
+// caller's top-level loop filters them, and nested ones stop here): a link
+// could point at sensitive paths outside the native tree. Directory cycles
+// are rejected rather than linked back into the native configuration tree.
 fn copy_config_input(
     source: &std::path::Path,
     target: &std::path::Path,
     ancestors: &mut Vec<std::path::PathBuf>,
 ) -> std::io::Result<()> {
-    if source.is_dir() {
+    let meta = std::fs::symlink_metadata(source)?;
+    if meta.file_type().is_symlink() {
+        return Ok(());
+    }
+    if meta.is_dir() {
         let canonical = source.canonicalize()?;
         if ancestors.contains(&canonical) {
             return Err(std::io::Error::other(
@@ -329,6 +349,41 @@ mod channel_tests {
             "{}"
         );
         assert!(directory.join("sessions").is_dir());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn staging_never_follows_symlinks_outside_the_native_home() {
+        let directory =
+            std::env::temp_dir().join(format!("ccgui-grok-symlink-test-{}", uuid::Uuid::new_v4()));
+        let outside = directory.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.txt"), "secret").unwrap();
+        let native = directory.join("native");
+        std::fs::create_dir_all(native.join("skills")).unwrap();
+        std::fs::write(native.join("skills/real.txt"), "real").unwrap();
+        std::fs::write(native.join("config.toml"), "[models]\ndefault = \"m\"\n").unwrap();
+        std::os::unix::fs::symlink(outside.join("secret.txt"), native.join("linked-secret"))
+            .unwrap();
+        std::os::unix::fs::symlink(&outside, native.join("skills/linked-dir")).unwrap();
+        let mut built = built();
+        stage_channel(
+            &mut built,
+            &serde_json::json!({}),
+            None,
+            &native,
+            &directory.join("staging"),
+        )
+        .unwrap();
+        let home = env_path(&built, "GROK_HOME");
+        assert!(!home.join("linked-secret").exists());
+        assert!(!home.join("skills/linked-dir").exists());
+        assert_eq!(
+            std::fs::read_to_string(home.join("skills/real.txt")).unwrap(),
+            "real"
+        );
+        super::super::cleanup_staged_files(&built.cleanup_files);
         std::fs::remove_dir_all(directory).unwrap();
     }
 

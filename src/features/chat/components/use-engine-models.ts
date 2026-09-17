@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { ModelOption } from "@/components/application/ai-chat/cli-menu";
+import type { ChannelOption } from "@/components/application/ai-chat/engine-model-panel";
 import { ipc, type CliConfig, type EngineCatalog, type EngineInfo } from "@/lib/ipc";
 import {
   CLI_CONFIG_CHANGED_EVENT,
@@ -23,6 +25,7 @@ const probeKey = (engine: EngineInfo) => `${engine.id}:${engine.available ? 1 : 
 export interface EngineModelsState {
   catalogs: Record<string, EngineCatalog>;
   modelsByEngine: Record<string, ModelOption[]>;
+  channelsByEngine: Record<string, ChannelOption[]>;
   refresh: () => Promise<void>;
   pendingEngines: Record<string, true>;
 }
@@ -60,6 +63,7 @@ export function useEngineModels(
   providers: Record<string, string> = {},
   workspacePath?: string,
 ): EngineModelsState {
+  const { t } = useTranslation();
   const [cliConfig, setCliConfig] = useState<CliConfig | null>(null);
   // Catalogs are workspace-scoped (a WSL distro's CLIs answer differently
   // than local ones), so the cache is keyed by workspace path: switching
@@ -166,7 +170,6 @@ export function useEngineModels(
         }));
         continue;
       }
-      const providerModels = configured ? [configured] : [];
       // Channel model leads (it is what the CLI would run unprompted), the
       // backend catalog follows, then engine-level custom models, and the
       // current-override append last so the selection never vanishes.
@@ -212,7 +215,7 @@ export function useEngineModels(
       result[engine.id] = ids;
     }
     return result;
-  }, [engines, cliConfig, catalogs, wsKey, customModels, providers]);
+  }, [engines, cliConfig, catalogs, wsKey, customModels]);
   // Official + custom channels for the flyout. Skip the list when the engine
   // has no in-app channels — a lone 官方配置 row is noise.
   const channelsByEngine = useMemo(() => {

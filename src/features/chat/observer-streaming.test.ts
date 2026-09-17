@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useChatStore } from "./store";
-import { handleEngineEvents, type EngineEventDeps } from "./store/engine-events";
+import { handleEngineEvents, settledRuns, type EngineEventDeps } from "./store/engine-events";
 import { sessionKey } from "./store/persistence";
 import { EMPTY_SESSION, runRouting } from "./store/stream";
 
@@ -38,6 +38,7 @@ describe("a turn this client did not start", () => {
     localStorage.clear();
     vi.clearAllMocks();
     runRouting.clear();
+    settledRuns.clear();
     // Opened from history: no send happened here, so nothing is flagged and
     // no run routes to it.
     useChatStore.setState({
