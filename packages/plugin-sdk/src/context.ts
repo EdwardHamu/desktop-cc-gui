@@ -68,6 +68,17 @@ export interface PluginContext {
       key?: string;
       component: ComponentType;
       order?: number;
+      /** Placement zone (0.3.8): "start" = left-aligned zone; omitted/"end"
+       *  = legacy slot after sync status, before version. */
+      zone?: "start" | "end";
+    }): Disposer;
+    /** Composer status-row chip (permission `ui:composer-status`, 0.3.9):
+     *  renders in the composer's status row (branch/context meter row),
+     *  left group after the branch switcher. */
+    registerComposerStatusItem(def: {
+      key?: string;
+      component: ComponentType;
+      order?: number;
     }): Disposer;
     /** Command palette entry (plan §4.2 #9). */
     registerCommand(def: {
@@ -85,6 +96,10 @@ export interface PluginContext {
       danger?: boolean;
       run: (target: SessionMenuTarget) => void;
     }): Disposer;
+    /** 跳转到本插件的设置页（权限 `ui:settings-section`，0.3.6 起）。
+     *  `key` 对应 registerSettingsSection 的子 key，省略时打开主 section；
+     *  供状态栏 chip、面板按钮等做深链入口。 */
+    openSettings(key?: string): void;
     /** Markdown pipeline additions, merged over host defaults (plan §4.2 #5). */
     registerMarkdownRenderer(def: {
       key?: string;
@@ -153,6 +168,14 @@ export interface PluginContext {
    *  行被丢弃。返回 Disposer,插件卸载时自动注销。 */
   sessions: {
     selectSession(engine: string, sessionId: string, workspacePath: string): Promise<void>;
+    /** 请求宿主立即刷新会话目录（侧栏/标签页），0.3.7 起。
+     *  插件绕过宿主直写会话数据（如 sqlite custom_title、转录 title 行）后
+     *  调用——否则变更要等用户手动同步或下次常规刷新才可见。 */
+    refresh(): Promise<void>;
+    /** 修改已有会话的 effort 档位，0.3.10 起。直写宿主会话状态并持久化
+     *  （等价于用户在会话内切换档位，refreshSessions 不会回滚）。未知会话
+     *  或空 effort 以 rejection 失败——不会创建幽灵会话条目。 */
+    setEffort(engine: string, sessionId: string, workspacePath: string, effort: string): Promise<void>;
     registerSource(def: {
       /** 源 id,插件内唯一;同 id 重复登记覆盖(热重载语义)。 */
       id: string;

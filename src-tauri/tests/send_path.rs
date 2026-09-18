@@ -99,6 +99,8 @@ async fn send_message_streams_events_end_to_end() {
         None,
         None,
         None,
+        None,
+        None,
     )
     .await
     .expect("send_message must succeed");
@@ -201,6 +203,8 @@ sleep 60
         workspace.to_string_lossy().to_string(),
         None,
         "hi".to_string(),
+        None,
+        None,
         None,
         None,
         None,
@@ -364,6 +368,8 @@ echo '{"type":"agent_end"}'
             workspace.to_string_lossy().into(),
             None,
             "hi".into(),
+            None,
+            None,
             None,
             None,
             None,

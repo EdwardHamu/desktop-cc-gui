@@ -200,6 +200,7 @@ interface PluginContext {
     registerStatusBarItem(d: StatusBarItemDef): Disposer;
     registerCommand(d: CommandDef): Disposer;                   // 命令面板（⌘K）
     registerSessionMenuItem(d: SessionMenuItemDef): Disposer;   // 侧栏会话右键菜单追加行
+    openSettings(key?): void;                                   // 跳转到本插件设置页（0.3.6 起）
     registerMarkdownRenderer(d: MarkdownRendererDef): Disposer; // 自定义消息渲染组件
     registerPage(d: PageDef): Disposer;                         // 整页路由
   };
@@ -231,8 +232,10 @@ interface PluginContext {
 
 | 事件 topic | 载荷 | 所需权限 |
 |---|---|---|
-| `usage://updated` | `{ engine, sessionId, inputTokens, outputTokens, cost? }` | `events:usage` |
-| `session://changed` | `{ workspaceId, sessionId, action }` | `events:session` |
+| `usage://updated` | 完整 EngineEventPayload `{ runId, sessionId, engine, seq, kind: "usage", data, ts? }`；`data` 为引擎原始 usage JSON（字段因引擎而异，如 claude 的 `cache_read_input_tokens`、codex 的 `cached_input_tokens`、pi/omp 的 `cacheRead`）；`ts` 为宿主发射时刻 Unix 毫秒（SDK 0.3.8 起） | `events` |
+| `usage://done`（SDK 0.3.8 起） | 同上形状，`kind: "done"`；`data.usage` 携带该轮最终用量——claude/grok 等不发独立 usage 事件的引擎只经此上报，其它引擎用作轮结束信号 | `events` |
+| `session://activated`（SDK 0.3.8 起） | `{ engine, sessionId }`；pending 标签 `sessionId` 为 null，无活动标签两者皆 null | `events` |
+| `composer://draft` | `{ text }`；草稿变化/清空/会话切换均发射 | `events` |
 
 > 想消费这里没有的宿主数据？到索引仓开 issue 提议新事件，不要试图绕过 SDK 抓 DOM/store——那是拒审理由。
 
@@ -250,7 +253,7 @@ interface PluginContext {
 | `ui:*`（`ui:settings-section`、`ui:panel-tab`、`ui:composer-slot`、`ui:status-bar`、`ui:page`、`ui:command`、`ui:markdown`、`ui:session-menu`） | 对应 UI 扩展点 | 低 |
 | `theme` | 注入 CSS / 覆盖 token | 低（Tier-0 隐含拥有） |
 | `i18n` | 注册语言资源 | 低 |
-| `events:usage` / `events:session` | 订阅对应宿主事件 | 中（涉及用户行为数据，需在 description 说明用途） |
+| `events` | 订阅宿主事件（usage://updated、usage://done、session://activated、composer://draft） | 中（涉及用户行为数据，需在 description 说明用途） |
 | `network` + `networkDomains: ["api.example.com"]` | `fetch` 访问**声明的域名**（白名单，逐个审核） | 高（必须说明每个域名的用途；通配域名一律拒审） |
 
 **规则**：

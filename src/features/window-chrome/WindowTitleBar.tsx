@@ -5,11 +5,13 @@ import X from "lucide-react/dist/esm/icons/x";
 import { useTranslation } from "react-i18next";
 import { isWeb } from "@/lib/transport";
 import { requestAppClose } from "@/lib/close-confirm";
+import { useTitlebarStyle } from "@/features/settings/titlebar";
 import { useWindowChrome } from "./use-window-chrome";
 
 /** The browser already supplies its own chrome; never expose inert buttons. */
 export function WindowTitleBar() {
-  return isWeb ? null : <DesktopTitleBar />;
+  const style = useTitlebarStyle();
+  return isWeb || style !== "internal" ? null : <DesktopTitleBar />;
 }
 
 function DesktopTitleBar() {

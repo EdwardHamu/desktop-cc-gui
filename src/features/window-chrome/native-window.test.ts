@@ -100,8 +100,15 @@ describe("native window boundary", () => {
   });
   it("disables native chrome and grants only the new main-window actions", () => {
     const config = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8"));
-    expect(config.app.windows[0].decorations).toBe(false);
-    expect(config.app.windows[0].titleBarStyle).toBeUndefined();
+    // Upstream creates the window after state registration, not from static JSON.
+    expect(config.app.windows).toBeUndefined();
+    const native = readFileSync("src-tauri/src/lib.rs", "utf8");
+    const settings = readFileSync("src-tauri/src/settings.rs", "utf8");
+    expect(settings).toMatch(/fn default_titlebar\(\) -> String\s*\{\s*"internal"\.to_string\(\)/);
+    expect(native.match(/WebviewWindowBuilder::new\(/g)).toHaveLength(1);
+    expect(native).toContain('.decorations(!internal_titlebar)');
+    expect(native).toContain('settings.titlebar != "native"');
+    expect(native).toContain('settings::restart_app');
     const cap = JSON.parse(readFileSync("src-tauri/capabilities/default.json", "utf8"));
     expect(cap.windows).toEqual(["main"]);
     expect(cap.permissions).toContain("core:window:allow-minimize");

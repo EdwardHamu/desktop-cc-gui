@@ -4,13 +4,16 @@ import type { Key, KeyboardEvent } from "react";
 
 import { Select, SelectItem } from "@/components/base/select/select";
 import { Input } from "@/components/base/input/input";
+import { Button } from "@/components/base/buttons/button";
 import { Switch } from "@/components/base/switch/switch";
+import { useTitlebarStyle } from "./titlebar";
 import {
   SettingsCard,
   SettingsRow,
   SettingsSectionLabel,
 } from "@/components/application/settings/settings-rows";
 import { ipc, type AppSettings } from "@/lib/ipc";
+import { IS_WINDOWS } from "@/lib/platform";
 import { applyTheme } from "./theme";
 import { PromptHistoryManager, PromptHistoryToggleRow } from "./PromptHistorySettings";
 import { CompletionNotificationSettings } from "./CompletionNotificationSettings";
@@ -35,6 +38,7 @@ export function GeneralSection() {
   const [error, setError] = useState<string | null>(null);
   // Raw digits while editing the thread limit; null = show the saved value.
   const [limitText, setLimitText] = useState<string | null>(null);
+  const startupTitlebarStyle = useTitlebarStyle();
   useEffect(() => {
     let cancelled = false;
     ipc
@@ -76,6 +80,13 @@ export function GeneralSection() {
     setSettings({ ...settings, theme });
     applyTheme(theme);
     void save({ theme });
+  };
+
+  const onTitlebarChange = (key: Key | null) => {
+    if (!settings || key == null) return;
+    const titlebar = String(key);
+    setSettings({ ...settings, titlebar });
+    void save({ titlebar });
   };
 
   const onLanguageChange = (key: Key | null) => {
@@ -159,6 +170,35 @@ export function GeneralSection() {
                 void save({ workspaceWallpaper });
               }}
             />
+            {IS_WINDOWS && (
+              <SettingsRow
+                label={t("settings.titlebar")}
+                description={t("settings.titlebarRestartHint")}
+              >
+                <div className="flex items-center gap-2">
+                  <Select
+                    aria-label={t("settings.titlebar")}
+                    selectedKey={settings.titlebar ?? "internal"}
+                    onSelectionChange={onTitlebarChange}
+                    triggerClassName={SELECT_TRIGGER}
+                  >
+                    <SelectItem id="internal">{t("settings.titlebarInternal")}</SelectItem>
+                    <SelectItem id="native">{t("settings.titlebarNative")}</SelectItem>
+                    <SelectItem id="mac">{t("settings.titlebarMac")}</SelectItem>
+                  </Select>
+                  <Button
+                    size="small"
+                    variant="ghost"
+                    disabled={
+                      (settings.titlebar ?? "internal") === startupTitlebarStyle
+                    }
+                    onClick={() => void ipc.restartApp()}
+                  >
+                    {t("settings.restartNow")}
+                  </Button>
+                </div>
+              </SettingsRow>
+            )}
             <SettingsRow label={t("settings.language")}>
               <Select
                 aria-label={t("settings.language")}

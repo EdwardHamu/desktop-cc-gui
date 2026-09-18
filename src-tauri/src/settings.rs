@@ -25,6 +25,11 @@ pub struct WorkspaceGroup {
 pub struct AppSettings {
     #[serde(default = "default_theme")]
     pub theme: String,
+    /// Windows 标题栏样式："native"（系统原生）| "mac"（仿 mac 自绘标题栏 +
+    /// 三色按钮）。仅 Windows 生效；macOS 固定系统原生红绿灯（Overlay）。
+    /// 窗口在启动时按此值创建，改动需重启应用。
+    #[serde(default = "default_titlebar")]
+    pub titlebar: String,
     /// Sidebar workspace groups, ordered by `sortOrder` (fallback: name).
     #[serde(default)]
     pub workspace_groups: Vec<WorkspaceGroup>,
@@ -36,6 +41,11 @@ pub struct AppSettings {
     /// 已归档 section; the record and its sessions stay intact.
     #[serde(default)]
     pub archived_workspaces: Vec<String>,
+    /// Enabled built-in catalog agents (设置 → 智能体 内置目录 tab + composer
+    /// `#` picker). Normalized by agent_catalog (sorted, deduped,
+    /// `agency-agents:`-prefixed); unknown ids are inert.
+    #[serde(default)]
+    pub enabled_builtin_agent_ids: Vec<String>,
     #[serde(default = "default_language")]
     pub language: String,
     #[serde(default)]
@@ -150,6 +160,9 @@ pub struct AppSettings {
 fn default_theme() -> String {
     "system".to_string()
 }
+fn default_titlebar() -> String {
+    "internal".to_string()
+}
 fn default_sidebar_thread_limit() -> u32 {
     5
 }
@@ -211,9 +224,11 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             theme: default_theme(),
+            titlebar: default_titlebar(),
             workspace_groups: Vec::new(),
             workspace_aliases: HashMap::new(),
             archived_workspaces: Vec::new(),
+            enabled_builtin_agent_ids: Vec::new(),
             web_auth_enabled: false,
             web_auth_key: None,
             web_relay_url: None,
@@ -1016,6 +1031,19 @@ mod tests {
     }
 
     #[test]
+    fn titlebar_defaults_to_internal_and_round_trips() {
+        assert_eq!(AppSettings::default().titlebar, "internal");
+        let parsed: AppSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(
+            parsed.titlebar, "internal",
+            "旧设置文件继续使用 fork 内部标题栏"
+        );
+        let mac: AppSettings = serde_json::from_str(r#"{"titlebar":"mac"}"#).unwrap();
+        assert_eq!(mac.titlebar, "mac");
+        assert!(serde_json::to_string(&mac).unwrap().contains("\"titlebar\":\"mac\""));
+    }
+
+    #[test]
     fn invalid_proxy_is_reported_before_settings_are_committed() {
         let scratch = Scratch::new();
         let path = scratch.path("settings.json");
@@ -1119,4 +1147,10 @@ pub fn set_window_theme(
         }
     }
     Ok(())
+}
+
+/// 立即重启应用。用于「标题栏样式」这类在启动时按设置建窗、只能重启生效的选项。
+#[tauri::command]
+pub fn restart_app(app: tauri::AppHandle) {
+    app.restart();
 }

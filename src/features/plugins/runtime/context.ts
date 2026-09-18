@@ -15,6 +15,7 @@ import {
   sessionMenuRegistry,
   settingsRegistry,
   statusBarRegistry,
+  composerStatusRegistry,
   timelineRowRegistry,
 } from "@ccgui/plugin-sdk";
 import type {
@@ -191,6 +192,17 @@ export function createPluginContext(
             id: scopedPluginId(id, def.key),
             component: def.component,
             order: def.order,
+            zone: def.zone,
+          }),
+        );
+      },
+      registerComposerStatusItem(def) {
+        requirePermission("ui:composer-status");
+        return track(
+          composerStatusRegistry.register({
+            id: scopedPluginId(id, def.key),
+            component: def.component,
+            order: def.order,
           }),
         );
       },
@@ -216,6 +228,11 @@ export function createPluginContext(
             run: (target) => runAsPlugin(() => def.run(target)),
           }),
         );
+      },
+      openSettings(key) {
+        requirePermission("ui:settings-section");
+        // 宿主是 hash 路由（见 features/commands/builtins.ts 的设置命令）。
+        window.location.hash = `#/settings?page=${scopedPluginId(id, key)}`;
       },
       registerMarkdownRenderer(def) {
         requirePermission("ui:markdown");
@@ -319,6 +336,25 @@ export function createPluginContext(
         // workspaces.add 一致(插件可用 .catch 链式处理)。
         return Promise.resolve().then(() =>
           openPluginSession(id, engine, sessionId, workspacePath),
+        );
+      },
+      refresh() {
+        requirePermission("host:session");
+        // 插件直写会话数据后的可见性补偿：走与宿主自身重命名/置顶一致的
+        // refreshSessions，侧栏与标签页立即反映。动态引入避免与 chat store
+        // 的模块环（store → plugins/runtime/session-source）。
+        return import("@/features/chat/store").then((m) =>
+          m.useChatStore.getState().refreshSessions(),
+        );
+      },
+      setEffort(engine, sessionId, workspacePath, effort) {
+        requirePermission("host:session");
+        // 校验失败走 rejection（与 selectSession 一致）。store 侧拒绝未知
+        // 会话键——错误的 workspacePath 不得经 patchSession 造出幽灵条目。
+        return Promise.resolve().then(() =>
+          import("@/features/chat/store").then((m) =>
+            m.setPluginSessionEffort(engine, sessionId, workspacePath, effort),
+          ),
         );
       },
       registerSource(def) {

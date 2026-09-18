@@ -3,10 +3,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  mode: { isWeb: false },
+  mode: { isWeb: false, titlebar: "internal" as "internal" | "native" | "mac" },
   perform: vi.fn(), watch: vi.fn(), requestClose: vi.fn(),
 }));
 vi.mock("@/lib/transport", () => mocks.mode);
+vi.mock("@/features/settings/titlebar", () => ({ useTitlebarStyle: () => mocks.mode.titlebar }));
 vi.mock("./native-window", () => ({ performWindowAction: mocks.perform, watchWindowMaximized: mocks.watch }));
 vi.mock("@/lib/close-confirm", () => ({ requestAppClose: mocks.requestClose }));
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
@@ -19,6 +20,7 @@ const button = (key: string) => host.querySelector<HTMLButtonElement>(`button[ar
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.mode.isWeb = false;
+  mocks.mode.titlebar = "internal";
   mocks.perform.mockResolvedValue(undefined);
   stop = vi.fn();
   mocks.watch.mockReturnValue(stop);
@@ -32,6 +34,12 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 const mount = async () => { await act(async () => root.render(<WindowTitleBar />)); };
+it.each(["native", "mac"] as const)("does not duplicate chrome in %s mode", async (style) => {
+  mocks.mode.titlebar = style;
+  await mount();
+  expect(host.childElementCount).toBe(0);
+  expect(mocks.watch).not.toHaveBeenCalled();
+});
 const click = async (key: string) => { await act(async () => button(key).click()); };
 
 describe("internal window titlebar", () => {

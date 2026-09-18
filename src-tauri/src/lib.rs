@@ -1,3 +1,5 @@
+pub mod agents;
+pub mod agent_catalog;
 pub mod baidu_tongji;
 pub mod cc_switch;
 pub mod cli_lifecycle;
@@ -16,6 +18,7 @@ pub mod open_app;
 pub mod paths;
 pub mod plugins;
 pub mod plugin_caps;
+pub mod prompts;
 pub mod proxy;
 pub mod provider_files;
 pub mod provider_models;
@@ -68,6 +71,8 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let db = Arc::new(db::Db::open().expect("failed to open app db"));
+            // Sweep per-send credential staging left behind by a crash.
+            engine::sweep_staging_dirs();
             if let Err(error) = db::import_legacy_workspaces_once(&db) {
                 // Import failure must never block startup; the sidebar simply
                 // starts empty and the user adds workspaces by hand.
@@ -78,6 +83,15 @@ pub fn run() {
                 // Same non-fatal rule: groups stay unassigned and the user can
                 // redo them in Settings → 工作区.
                 eprintln!("[settings] legacy group import failed: {error}");
+            }
+
+            if let Err(error) = agents::import_legacy_agents_once(&db) {
+                // Same non-fatal rule: the `#` picker simply starts empty.
+                eprintln!("[agents] legacy agent import failed: {error}");
+            }
+            if let Err(error) = prompts::import_legacy_prompts_once(&db) {
+                // Same non-fatal rule: the `!` picker simply starts empty.
+                eprintln!("[prompts] legacy prompt import failed: {error}");
             }
             // files.rs commands inject State<'_, Arc<db::Db>> for workspace
             // confinement, so the Arc itself must be managed alongside.
@@ -170,6 +184,41 @@ pub fn run() {
                     }
                 });
             }
+            // 窗口在 setup 末尾创建（tauri.conf.json 不再声明 windows），这样能按持久化
+            // 设置决定装饰：Windows 可选仿 mac 自绘标题栏（decorations=false + shadow，
+            // 保留 DWM 阴影与四边缩放），macOS 保持 Overlay + 系统原生红绿灯（与原配置
+            // 一致）。放在 manage(state) 之后：窗口一开始加载前端就会 invoke 命令，
+            // 状态必须已经就位。设置改动需重启应用。
+            let settings = settings::read_settings().unwrap_or_default();
+            let internal_titlebar = settings.titlebar != "native"
+                && (!cfg!(target_os = "windows") || settings.titlebar != "mac");
+            let mut window_builder =
+                tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
+                    .title("CC GUI")
+                    .inner_size(1400.0, 900.0)
+                    .min_inner_size(900.0, 600.0)
+                    .decorations(!internal_titlebar);
+            #[cfg(target_os = "macos")]
+            {
+                // 原 tauri.conf.json: titleBarStyle "Overlay" + hiddenTitle true。
+                if !internal_titlebar {
+                    window_builder = window_builder
+                        .title_bar_style(tauri::TitleBarStyle::Overlay)
+                        .hidden_title(true);
+                }
+            }
+            #[cfg(target_os = "windows")]
+            {
+                let mac_like = settings.titlebar == "mac";
+                window_builder = window_builder.decorations(!mac_like && !internal_titlebar);
+                if mac_like || internal_titlebar {
+                    // 无装饰窗口默认没有 DWM 阴影；打开它保住阴影（也让四边缩放走原生路径）。
+                    window_builder = window_builder.shadow(true);
+                }
+            }
+            window_builder
+                .build()
+                .expect("failed to create main window");
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -184,6 +233,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             devtools::open_devtools,
+            // 窗口
+            settings::restart_app,
             // config
             config::get_cli_config,
             config::upsert_provider,
@@ -221,6 +272,7 @@ pub fn run() {
             // engine
             engine::send_message,
             engine::interrupt_session,
+            engine::answer_question,
             engine::list_engines,
             engine::models::list_engine_models,
             engine::pi_family_auth::pi_family_auth_list,
@@ -243,6 +295,7 @@ pub fn run() {
             history::reader::rename_session,
             history::reader::remember_session_model,
             history::reader::remember_session_effort,
+            history::reader::remember_session_provider,
             history::reader::rescan_sessions,
             history::reader::list_workspaces,
             history::reader::add_workspace,
@@ -263,6 +316,23 @@ pub fn run() {
             files::list_file_index,
             // composer `/` slash-command picker
             slash_commands::list_slash_commands,
+            // agents & prompts (composer `#`/`!` pickers)
+            agents::agent_list,
+            agents::agent_add,
+            agents::agent_update,
+            agents::agent_delete,
+            // built-in agent catalog (agency-agents pack)
+            agent_catalog::list_built_in_agents,
+            agent_catalog::set_built_in_agent_enabled,
+            agent_catalog::set_built_in_agent_division_enabled,
+            agent_catalog::get_built_in_agent_prompt,
+            agent_catalog::resolve_enabled_built_in_agent,
+            prompts::prompts_list,
+            prompts::prompts_dirs,
+            prompts::prompts_create,
+            prompts::prompts_update,
+            prompts::prompts_delete,
+            prompts::prompts_move,
             // On-demand directory grants (desktop-only — see grant_root).
             files::grant_scope,
             files::grant_root,
