@@ -163,6 +163,7 @@ mod tests {
         BuiltCommand {
             command: tokio::process::Command::new("claude"),
             stdin_payload: None,
+            keep_stdin_open: false,
             cleanup_files: Vec::new(),
             preassigned_session_id: None,
         }

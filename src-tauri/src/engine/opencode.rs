@@ -54,6 +54,7 @@ impl Engine for OpenCodeEngine {
         Ok(BuiltCommand {
             command: cmd,
             stdin_payload: None,
+            keep_stdin_open: false,
             cleanup_files: Vec::new(),
             preassigned_session_id: None,
         })
