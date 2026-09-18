@@ -309,6 +309,119 @@ function ModelGroupList({
   );
 }
 
+/** Filters the catalog by the search query and shapes the rows for
+ *  ModelGroupList: provider sections layer the list whenever the engine's
+ *  catalog mixes sources (OMP serving several relays) — including while
+ *  filtering, so the results keep naming their origin instead of collapsing
+ *  into identical rows. Pinning the active row to the top would tear it out
+ *  of its section, so a grouped list keeps the catalog order and marks the
+ *  pick in place; only a flat single-source list reorders to surface the
+ *  pick. The section holding the current pick leads so the selection is
+ *  never scrolled out of view; within sections the catalog order stands. */
+function useOrderedModelGroups(
+  models: ModelOption[],
+  query: string,
+  selectedModelId: string,
+): { groups: ModelGroup[]; empty: boolean } {
+  return useMemo(() => {
+    const filtered = filterModels(models, query.trim().toLowerCase());
+    const groups = groupModelsByProvider(filtered);
+    // Sectioned whenever the grouping carried keys — a single provider
+    // still gets its header (the group is keyless only when no provider is
+    // known).
+    const layered = groups.length > 0 && groups[0].key !== "";
+    if (layered) {
+      const ordered = [...groups].sort(
+        (a, b) =>
+          Number(b.rows.some((m) => m.id === selectedModelId)) -
+          Number(a.rows.some((m) => m.id === selectedModelId)),
+      );
+      return { groups: ordered, empty: filtered.length === 0 };
+    }
+    const flat = [...filtered].sort(
+      (a, b) =>
+        Number(b.id === selectedModelId) - Number(a.id === selectedModelId),
+    );
+    return { groups: [{ key: "", rows: flat }], empty: flat.length === 0 };
+  }, [models, query, selectedModelId]);
+}
+
+/** The search field filtering the model list. */
+function ModelSearchField({
+  query,
+  onQueryChange,
+}: {
+  query: string;
+  onQueryChange: (value: string) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="relative mx-1 -mt-1.5 pb-1">
+      <Search
+        className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-[calc(50%+2px)] text-foreground-icon-secondary"
+        aria-hidden
+      />
+      <input
+        value={query}
+        onChange={(event) => onQueryChange(event.target.value)}
+        placeholder={t("chat.modelSearchPlaceholder")}
+        aria-label={t("chat.modelSearchPlaceholder")}
+        className="h-8 w-full rounded-md border border-separator-border bg-background-secondary-default pr-2 pl-7 text-body-regular text-text-primary outline-none placeholder:text-text-tertiary focus-visible:ring-2 focus-visible:ring-border-focus-ring"
+      />
+    </div>
+  );
+}
+
+/** Panel footer: full-bleed divider (like the reference submenu) over the
+ *  effort section. For OMP models supporting Fast mode and for Codex the
+ *  effort header additionally carries the speed-tier picker. */
+function EffortFooter({
+  engineId,
+  selectedModelId,
+  effort,
+  onEffortChange,
+  ompServiceTier,
+  onOmpServiceTierChange,
+  codexServiceTier,
+  onCodexServiceTierChange,
+}: {
+  engineId: string;
+  selectedModelId: string;
+  effort: EffortLevel;
+  onEffortChange: (engine: string, level: EffortLevel) => void;
+  ompServiceTier: OmpServiceTier;
+  onOmpServiceTierChange: (tier: OmpServiceTier) => Promise<void>;
+  codexServiceTier: OmpServiceTier;
+  onCodexServiceTierChange: (tier: OmpServiceTier) => Promise<void>;
+}) {
+  const { t } = useTranslation();
+  const ompFast = engineId === "omp" && supportsOmpFastMode(selectedModelId);
+  const codexFast = engineId === "codex";
+  const showFast = ompFast || codexFast;
+  const fastTier = codexFast ? codexServiceTier : ompServiceTier;
+  const onFastChange = codexFast ? onCodexServiceTierChange : onOmpServiceTierChange;
+  const header = showFast ? (
+    <OmpSpeedSection
+      model={selectedModelId}
+      supported={codexFast || undefined}
+      value={fastTier}
+      onChange={onFastChange}
+    >
+      <span className="text-body-medium text-text-primary">{t(EFFORT_LABEL_KEYS[effort])}</span>
+    </OmpSpeedSection>
+  ) : undefined;
+  return (
+    <>
+      <div aria-hidden className={cx("-mx-1 mt-[7px] h-px bg-border-button-default", showFast ? "mb-1" : "mb-3")} />
+      <FlyoutEffortSection
+        header={header}
+        effort={effort}
+        onChange={(level) => onEffortChange(engineId, level)}
+      />
+    </>
+  );
+}
+
 /**
  * Engine model panel content: "{name} 引擎" header over a search field over
  * checkmark model rows over the effort slider. Shared by the desktop flyout
@@ -358,38 +471,7 @@ export function EngineModelPanel({
   loading?: boolean;
 }) {
   const { t } = useTranslation();
-  const normalizedQuery = query.trim().toLowerCase();
-  const filteredModels = filterModels(models, normalizedQuery);
-  // Provider sections layer the list whenever the engine's catalog mixes
-  // sources (OMP serving several relays) — including while filtering, so the
-  // results keep naming their origin instead of collapsing into identical
-  // rows. Pinning the active row to the top would tear it out of its section,
-  // so a grouped list keeps the catalog order and marks the pick in place;
-  // only a flat single-source list reorders to surface the pick.
-  const groups = useMemo(() => groupModelsByProvider(filteredModels), [filteredModels]);
-  // Sectioned whenever the grouping carried keys — a single provider still
-  // gets its header (the group is keyless only when no provider is known).
-  const layered = groups.length > 0 && groups[0].key !== "";
-  const orderedModels = layered
-    ? filteredModels
-    : [...filteredModels].sort(
-        (a, b) =>
-          Number(b.id === selectedModelId) - Number(a.id === selectedModelId),
-      );
-  // The section holding the current pick leads so the selection is never
-  // scrolled out of view; within sections the catalog order stands.
-  const visibleGroups = layered
-    ? [...groups].sort(
-        (a, b) =>
-          Number(b.rows.some((m) => m.id === selectedModelId)) -
-          Number(a.rows.some((m) => m.id === selectedModelId)),
-      )
-    : null;
-  const ompFast = option.id === "omp" && supportsOmpFastMode(selectedModelId);
-  const codexFast = option.id === "codex";
-  const showFast = ompFast || codexFast;
-  const fastTier = codexFast ? codexServiceTier : ompServiceTier;
-  const onFastChange = codexFast ? onCodexServiceTierChange : onOmpServiceTierChange;
+  const { groups, empty } = useOrderedModelGroups(models, query, selectedModelId);
 
   return (
     <div className="flex w-full flex-col gap-1.5">
@@ -409,43 +491,24 @@ export function EngineModelPanel({
           onPickChannel={onPickChannel}
         />
       )}
-      <div className="relative mx-1 -mt-1.5 pb-1">
-        <Search
-          className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-[calc(50%+2px)] text-foreground-icon-secondary"
-          aria-hidden
-        />
-        <input
-          value={query}
-          onChange={(event) => onQueryChange(event.target.value)}
-          placeholder={t("chat.modelSearchPlaceholder")}
-          aria-label={t("chat.modelSearchPlaceholder")}
-          className="h-8 w-full rounded-md border border-separator-border bg-background-secondary-default pr-2 pl-7 text-body-regular text-text-primary outline-none placeholder:text-text-tertiary focus-visible:ring-2 focus-visible:ring-border-focus-ring"
-        />
-      </div>
+      <ModelSearchField query={query} onQueryChange={onQueryChange} />
       <ModelGroupList
-        groups={visibleGroups ?? [{ key: "", rows: orderedModels }]}
-        empty={orderedModels.length === 0}
+        groups={groups}
+        empty={empty}
         loading={loading}
         selectedModelId={selectedModelId}
         engineId={option.id}
         onPickModel={onPickModel}
       />
-
-      {/* Full-bleed divider, like the reference submenu. */}
-      <div aria-hidden className={cx("-mx-1 mt-[7px] h-px bg-border-button-default", showFast ? "mb-1" : "mb-3")} />
-      <FlyoutEffortSection
-        header={showFast ? (
-          <OmpSpeedSection
-            model={selectedModelId}
-            supported={codexFast || undefined}
-            value={fastTier}
-            onChange={onFastChange}
-          >
-            <span className="text-body-medium text-text-primary">{t(EFFORT_LABEL_KEYS[effort])}</span>
-          </OmpSpeedSection>
-        ) : undefined}
+      <EffortFooter
+        engineId={option.id}
+        selectedModelId={selectedModelId}
         effort={effort}
-        onChange={(level) => onEffortChange(option.id, level)}
+        onEffortChange={onEffortChange}
+        ompServiceTier={ompServiceTier}
+        onOmpServiceTierChange={onOmpServiceTierChange}
+        codexServiceTier={codexServiceTier}
+        onCodexServiceTierChange={onCodexServiceTierChange}
       />
     </div>
   );

@@ -10,10 +10,8 @@ import {
   type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
 import GitMerge from "lucide-react/dist/esm/icons/git-merge";
 import Globe from "lucide-react/dist/esm/icons/globe";
-import Bot from "lucide-react/dist/esm/icons/bot";
 import {
   Button as AriaButton,
   Dialog as AriaDialog,
@@ -34,45 +32,22 @@ import {
 import { ComposerResizeHandle } from "@/components/application/ai-chat/composer-resize-handle";
 import { ComposerEditable } from "@/components/application/ai-chat/composer-editable";
 import { ComposerToolbar } from "@/components/application/ai-chat/composer-toolbar";
-import { useMentionPicker } from "@/components/application/ai-chat/use-mention-picker";
-import { useSlashPicker } from "@/components/application/ai-chat/use-slash-picker";
-import { useAgentPicker } from "@/components/application/ai-chat/use-agent-picker";
-import { usePromptPicker } from "@/components/application/ai-chat/use-prompt-picker";
+import { ComposerPickerMenus } from "@/components/application/ai-chat/composer-picker-menus";
+import { SelectedAgentChip } from "@/components/application/ai-chat/composer-agent-chip";
+import { useComposerPickers } from "@/components/application/ai-chat/use-composer-pickers";
+import { useComposerInputHandle } from "@/components/application/ai-chat/use-composer-input-handle";
 import { useResizableComposer } from "@/components/application/ai-chat/use-resizable-composer";
 import {
   FILE_TAG_CLASS,
   extractText,
-  findMentionTrigger,
-  getCaretOffset,
   htmlFromText,
-  insertTextAtCaret,
-  mentionToken,
   renderFileTags,
   sanitizeEditableHtml,
   setCaretOffset,
 } from "@/components/application/ai-chat/file-tags";
-import { FileMentionMenu } from "@/components/application/ai-chat/file-mention-menu";
-import { SlashCommandMenu } from "@/components/application/ai-chat/slash-command-menu";
-import { findSlashTrigger } from "@/components/application/ai-chat/slash-commands";
-import {
-  AgentMenu,
-  CREATE_NEW_AGENT_ID,
-} from "@/components/application/ai-chat/agent-menu";
-import {
-  PromptMenu,
-  CREATE_NEW_PROMPT_PATH,
-} from "@/components/application/ai-chat/prompt-menu";
-import {
-  findBangTrigger,
-  findHashTrigger,
-} from "@/components/application/ai-chat/agent-prompt-triggers";
-import { type MentionEntry } from "@/components/application/ai-chat/mention-files";
-import { ipc, type AgentConfig, type CustomPromptEntry, type SlashCommandEntry } from "@/lib/ipc";
-import { useSelectedAgent } from "@/features/agents/selected-agent";
-import { useChatStore } from "@/features/chat/store";
+import { ipc } from "@/lib/ipc";
 import { listenSettingsChanged } from "@/lib/events";
 import { useTauriEvent } from "@/hooks/use-tauri-event";
-import { joinPath } from "@/features/files/store";
 import { ASSUMED_CONTEXT_WINDOW } from "@/features/chat/usage";
 import {
   usePromptCompletion,
@@ -172,76 +147,6 @@ export function Composer({
   /** Last text we emitted upward; the value-sync effect skips our own echoes. */
   const lastEmittedRef = useRef("");
 
-  // @-mention file picker: trigger tracking, caret anchoring, and workspace
-  // lifecycle live in useMentionPicker; the menu + select action stay wired
-  // here. The parent owns the wrapper ref (root div + popover anchor).
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const { mention, setMention, mentionMenuRef, updateMentionTrigger } =
-    useMentionPicker({ editableRef, wrapperRef, workspacePath, value, lastEmittedRef });
-  // `/` command picker: same trigger-tracking model as the mention picker.
-  const { slash, setSlash, slashMenuRef, updateSlashTrigger } =
-    useSlashPicker({ editableRef, wrapperRef, workspacePath, value, lastEmittedRef });
-
-  // `#` agent picker and `!` prompt picker: same trigger-tracking model.
-  const { agent, setAgent, agentMenuRef, updateAgentTrigger } =
-    useAgentPicker({ editableRef, wrapperRef, workspacePath, value, lastEmittedRef });
-  const { prompt, setPrompt, promptMenuRef, updatePromptTrigger } =
-    usePromptPicker({ editableRef, wrapperRef, workspacePath, value, lastEmittedRef });
-
-  const { t } = useTranslation();
-  const navigate = useNavigate();
-  // The pinned agent is keyed per thread; draft tabs share a slot until the
-  // engine stamps a native session id (see selected-agent.ts).
-  const activeSessionId = useChatStore((s) => s.active?.sessionId ?? null);
-  const {
-    agent: selectedAgent,
-    select: selectAgent,
-    clear: clearSelectedAgent,
-  } = useSelectedAgent(workspacePath ?? "", activeSessionId);
-
-  // One detection pass per input, priority `/` > `@` > `#` > `!`
-  // (desktop-cc-gui parity: a line-start slash owns the completion surface;
-  // `@` inside a slash query must not open the file picker on top of it;
-  // only one picker is active at a time).
-  const updateTriggers = useCallback(() => {
-    if (updateSlashTrigger()) {
-      setMention(null);
-      setAgent(null);
-      setPrompt(null);
-      return;
-    }
-    // `@` outranks `#`/`!`; the mention hook's update returns void, so
-    // pre-check with the same finder its picker uses.
-    const el = editableRef.current;
-    const caret = el ? getCaretOffset(el) : -1;
-    if (
-      el &&
-      workspacePath &&
-      caret >= 0 &&
-      findMentionTrigger(extractText(el), caret)
-    ) {
-      updateMentionTrigger();
-      setAgent(null);
-      setPrompt(null);
-      return;
-    }
-    setMention(null);
-    if (updateAgentTrigger()) {
-      setPrompt(null);
-      return;
-    }
-    updatePromptTrigger();
-  }, [
-    updateSlashTrigger,
-    updateMentionTrigger,
-    updateAgentTrigger,
-    updatePromptTrigger,
-    setMention,
-    setAgent,
-    setPrompt,
-    workspacePath,
-  ]);
-
   const emitChange = useCallback(() => {
     const el = editableRef.current;
     if (!el) return;
@@ -258,129 +163,35 @@ export function Composer({
     if (el && !isComposingRef.current) renderFileTags(el);
   }, []);
 
-  /** Replace the active `@query` trigger with the picked file's mention
-   *  token (+ trailing space) and render it as a chip. */
-  const handleMentionSelect = useCallback(
-    (entry: MentionEntry) => {
-      const el = editableRef.current;
-      if (!el || !workspacePath) return;
-      setMention(null);
-      const token = mentionToken(joinPath(workspacePath, entry.rel)) + " ";
-      const caret = getCaretOffset(el);
-      const text = extractText(el);
-      // Recompute the trigger at select time — the caret may have moved
-      // since the menu last sampled it.
-      const trigger = caret >= 0 ? findMentionTrigger(text, caret) : null;
-      el.focus();
-      if (!trigger) {
-        insertTextAtCaret(el, token);
-      } else {
-        const next =
-          text.slice(0, trigger.start) +
-          token +
-          text.slice(trigger.start + 1 + trigger.query.length);
-        el.innerHTML = sanitizeEditableHtml(htmlFromText(next));
-        setCaretOffset(el, trigger.start + token.length);
-      }
-      emitChange();
-      syncTags();
-    },
-    [workspacePath, emitChange, syncTags, setMention],
-  );
-  /** Replace the active `/query` trigger with the picked command
-   *  (+ trailing space). Plain text, no chip: the CLI expands `/name args`
-   *  itself when the prompt is sent. */
-  const handleSlashSelect = useCallback(
-    (entry: SlashCommandEntry) => {
-      const el = editableRef.current;
-      if (!el) return;
-      setSlash(null);
-      const token = `/${entry.name} `;
-      const caret = getCaretOffset(el);
-      const text = extractText(el);
-      // Recompute the trigger at select time — the caret may have moved
-      // since the menu last sampled it.
-      const trigger = caret >= 0 ? findSlashTrigger(text, caret) : null;
-      el.focus();
-      if (!trigger) {
-        insertTextAtCaret(el, token);
-      } else {
-        const next =
-          text.slice(0, trigger.start) +
-          token +
-          text.slice(trigger.start + 1 + trigger.query.length);
-        el.innerHTML = sanitizeEditableHtml(htmlFromText(next));
-        setCaretOffset(el, trigger.start + token.length);
-      }
-      emitChange();
-      syncTags();
-    },
-    [emitChange, syncTags, setSlash],
-  );
-  /** Pin the picked agent to this thread and strip the `#query` trigger
-   *  from the field (the agent rides the message as a role block on send,
-   *  not as text). The create row jumps to the settings page instead. */
-  const handleAgentSelect = useCallback(
-    (entry: AgentConfig) => {
-      setAgent(null);
-      if (entry.id === CREATE_NEW_AGENT_ID) {
-        navigate("/settings?page=agentsPrompts");
-        return;
-      }
-      const el = editableRef.current;
-      if (!el) return;
-      selectAgent(entry);
-      const caret = getCaretOffset(el);
-      const text = extractText(el);
-      // Recompute the trigger at select time — the caret may have moved
-      // since the menu last sampled it.
-      const trigger = caret >= 0 ? findHashTrigger(text, caret) : null;
-      el.focus();
-      if (trigger) {
-        const next =
-          text.slice(0, trigger.start) +
-          text.slice(trigger.start + 1 + trigger.query.length);
-        el.innerHTML = sanitizeEditableHtml(htmlFromText(next));
-        setCaretOffset(el, trigger.start);
-      }
-      emitChange();
-      syncTags();
-    },
-    [emitChange, syncTags, setAgent, selectAgent, navigate],
-  );
-  /** Replace the active `!query` trigger with the picked prompt's content,
-   *  caret to the end of the inserted text. The create row jumps to the
-   *  settings page instead. */
-  const handlePromptSelect = useCallback(
-    (entry: CustomPromptEntry) => {
-      setPrompt(null);
-      if (entry.path === CREATE_NEW_PROMPT_PATH) {
-        navigate("/settings?page=agentsPrompts");
-        return;
-      }
-      const el = editableRef.current;
-      if (!el) return;
-      const caret = getCaretOffset(el);
-      const text = extractText(el);
-      // Recompute the trigger at select time — the caret may have moved
-      // since the menu last sampled it.
-      const trigger = caret >= 0 ? findBangTrigger(text, caret) : null;
-      el.focus();
-      if (!trigger) {
-        insertTextAtCaret(el, entry.content);
-      } else {
-        const next =
-          text.slice(0, trigger.start) +
-          entry.content +
-          text.slice(trigger.start + 1 + trigger.query.length);
-        el.innerHTML = sanitizeEditableHtml(htmlFromText(next));
-        setCaretOffset(el, trigger.start + entry.content.length);
-      }
-      emitChange();
-      syncTags();
-    },
-    [emitChange, syncTags, setPrompt, navigate],
-  );
+  // `@` mention / `/` slash / `#` agent / `!` prompt pickers: trigger
+  // tracking, priority arbitration, and select actions live in
+  // useComposerPickers. The parent owns the wrapper ref (root div + popover
+  // anchor).
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const pickers = useComposerPickers({
+    editableRef,
+    wrapperRef,
+    workspacePath,
+    value,
+    lastEmittedRef,
+    emitChange,
+    syncTags,
+  });
+  const {
+    mention,
+    slash,
+    agent,
+    prompt,
+    mentionMenuRef,
+    slashMenuRef,
+    agentMenuRef,
+    promptMenuRef,
+    updateSlashTrigger,
+    updateTriggers,
+    selectedAgent,
+    clearSelectedAgent,
+  } = pickers;
+
   // Ghost-text completion from prompt history (desktop-cc-gui parity):
   // suffix is painted via data-completion-suffix and accepted with Tab.
   const completion = usePromptCompletion(isComposing ? "" : (value ?? ""));
@@ -418,43 +229,13 @@ export function Composer({
   }, [value]);
 
   // Expose the field handle (focus + mention insertion from the file tree).
-  useEffect(() => {
-    if (!inputRef) return;
-    const handle: ComposerInputHandle = {
-      focus: () => editableRef.current?.focus(),
-      insertText: (text) => {
-        const el = editableRef.current;
-        if (!el) return;
-        insertTextAtCaret(el, text);
-        emitChange();
-        syncTags();
-      },
-      openSlashPicker: () => {
-        const el = editableRef.current;
-        if (!el) return;
-        el.focus();
-        // Append at the end: the trigger regex only accepts a line-start
-        // `/`, so an arbitrary caret position mid-line could not open the
-        // picker anyway.
-        const text = extractText(el);
-        setCaretOffset(el, text.length);
-        if (!findSlashTrigger(text, text.length)) {
-          insertTextAtCaret(el, text === "" || text.endsWith("\n") ? "/" : "\n/");
-        }
-        emitChange();
-        syncTags();
-        updateSlashTrigger();
-        // react-aria restores focus to the popover trigger when the add
-        // menu unmounts — after our focus() above. Reclaim the field so
-        // typing reaches it once the picker is open.
-        requestAnimationFrame(() => editableRef.current?.focus());
-      },
-    };
-    inputRef.current = handle;
-    return () => {
-      if (inputRef.current === handle) inputRef.current = null;
-    };
-  }, [inputRef, emitChange, syncTags, updateSlashTrigger]);
+  useComposerInputHandle({
+    inputRef,
+    editableRef,
+    emitChange,
+    syncTags,
+    updateSlashTrigger,
+  });
 
   // Chip × removal via delegation (chips are raw DOM, not React).
   useEffect(() => {
@@ -489,80 +270,16 @@ export function Composer({
         isResizing={isResizing}
         isCollapsed={isCollapsed}
       />
-      {/* TEMP DEBUG: remove after # / ! picker diagnosis */}
-      <DebugProbe
-        probe={{
-          ws: workspacePath ?? null,
-          agent,
-          prompt,
-          slash: slash?.query ?? null,
-          text: value ?? "",
-        }}
+      <ComposerPickerMenus
+        isCollapsed={isCollapsed}
+        workspacePath={workspacePath}
+        pickers={pickers}
       />
-      {!isCollapsed && mention && workspacePath && (
-        <FileMentionMenu
-          root={workspacePath}
-          query={mention.query}
-          left={mention.left}
-          onSelect={handleMentionSelect}
-          onClose={() => setMention(null)}
-          menuRef={mentionMenuRef}
-        />
-      )}
-      {!isCollapsed && slash && workspacePath && (
-        <SlashCommandMenu
-          root={workspacePath}
-          query={slash.query}
-          left={slash.left}
-          onSelect={handleSlashSelect}
-          onClose={() => setSlash(null)}
-          menuRef={slashMenuRef}
-        />
-      )}
-      {!isCollapsed && agent && workspacePath && (
-        <AgentMenu
-          query={agent.query}
-          left={agent.left}
-          onSelect={handleAgentSelect}
-          onClose={() => setAgent(null)}
-          menuRef={agentMenuRef}
-        />
-      )}
-      {!isCollapsed && prompt && workspacePath && (
-        <PromptMenu
-          root={workspacePath}
-          query={prompt.query}
-          left={prompt.left}
-          onSelect={handlePromptSelect}
-          onClose={() => setPrompt(null)}
-          menuRef={promptMenuRef}
-        />
-      )}
 
       {/* Pinned-agent chip above the input, styled after the attachment
           chips (ConversationFooter); × clears the selection. */}
       {!isCollapsed && selectedAgent && (
-        <div className="flex flex-wrap gap-1.5 px-1.5">
-          <span className="inline-flex items-center gap-1 rounded-full bg-background-tertiary-default py-0.5 pl-2 text-caption-1-medium text-text-secondary">
-            {selectedAgent.icon ? (
-              <span aria-hidden>{selectedAgent.icon}</span>
-            ) : (
-              <Bot
-                aria-hidden
-                className="size-3.5 shrink-0 text-foreground-icon-secondary"
-              />
-            )}
-            <span className="max-w-48 truncate">{selectedAgent.name}</span>
-            <button
-              type="button"
-              aria-label={t("chat.selectedAgentRemove")}
-              onClick={clearSelectedAgent}
-              className="cursor-pointer rounded-full px-1 hover:text-text-primary"
-            >
-              ×
-            </button>
-          </span>
-        </div>
+        <SelectedAgentChip agent={selectedAgent} onClear={clearSelectedAgent} />
       )}
 
       {!isCollapsed && (
@@ -607,16 +324,6 @@ export function Composer({
       )}
     </div>
   );
-}
-
-/** TEMP DEBUG: beacon composer trigger state to the vite dev server
- *  (CPS-safe same-origin fetch). Remove after diagnosis. */
-function DebugProbe({ probe }: { probe: Record<string, unknown> }) {
-  const json = JSON.stringify(probe);
-  useEffect(() => {
-    fetch("/__dbg?" + encodeURIComponent(json)).catch(() => {});
-  }, [json]);
-  return null;
 }
 
 /* -------------------------------------------------------------- status bar */
