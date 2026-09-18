@@ -194,6 +194,7 @@ mod channel_tests {
         BuiltCommand {
             command: tokio::process::Command::new("grok"),
             stdin_payload: None,
+            keep_stdin_open: false,
             cleanup_files: Vec::new(),
             preassigned_session_id: None,
         }
@@ -473,6 +474,7 @@ impl Engine for GrokEngine {
         Ok(BuiltCommand {
             command: cmd,
             stdin_payload: None,
+            keep_stdin_open: false,
             cleanup_files,
             preassigned_session_id: preassigned,
         })

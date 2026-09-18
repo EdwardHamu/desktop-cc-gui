@@ -78,6 +78,7 @@ fn build_command(req: &SendRequest, bin: &str, native_model: bool) -> Result<Bui
     Ok(BuiltCommand {
         command: cmd,
         stdin_payload: None,
+        keep_stdin_open: false,
         cleanup_files: Vec::new(),
         preassigned_session_id: None,
     })

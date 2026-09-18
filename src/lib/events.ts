@@ -16,6 +16,8 @@ export interface EngineEventPayload {
     | "warn"
     | "retry"
     | "permission_denied"
+    | "question"
+    | "question_settled"
     | "done"
     | "model";
   data: unknown;
