@@ -280,6 +280,7 @@ mod tests {
     fn req() -> SendRequest {
         SendRequest {
             session_id: None,
+            provider_id: None,
             workspace: PathBuf::from("/tmp/ws"),
             prompt: "hi".to_string(),
             images: Vec::new(),

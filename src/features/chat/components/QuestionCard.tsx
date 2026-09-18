@@ -131,6 +131,8 @@ export function QuestionCard({ message }: { message: Message }) {
               key={opt.label}
               type="button"
               data-q-row
+              role={current.multiSelect ? "checkbox" : "radio"}
+              aria-checked={selected}
               onClick={() => pick(current.question, opt.label, Boolean(current.multiSelect))}
               onKeyDown={(e) => {
                 if (e.key === "ArrowDown" || e.key === "ArrowUp") {

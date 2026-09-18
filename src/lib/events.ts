@@ -21,6 +21,9 @@ export interface EngineEventPayload {
     | "done"
     | "model";
   data: unknown;
+  /** Emit-side timestamp (Unix ms), stamped in TurnState::push. Absent from
+   *  payloads produced before SDK 0.3.8. */
+  ts?: number;
 }
 
 /** Batched engine events arrive as an array under a single event name. */
