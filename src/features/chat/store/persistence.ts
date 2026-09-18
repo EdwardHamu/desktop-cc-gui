@@ -16,6 +16,10 @@ export interface ActiveSession {
   model?: string;
   /** Per-tab effort override; undefined => follow the engine's global default. */
   effort?: EffortLevel;
+  /** Per-tab channel override; undefined => follow the engine's `current`.
+   *  Only a pending (sessionId === null) tab may carry this; native sessions
+   *  own the channel in SessionState / session_providers. */
+  provider?: string;
 }
 
 export function sessionKey(
@@ -26,6 +30,17 @@ export function sessionKey(
   return sessionId
     ? `${engine}/${sessionId}`
     : `new:${engine}:${workspacePath}`;
+}
+
+/** Inverse of `sessionKey` for pending (never-sent) tabs. */
+export function parseDraftSessionKey(
+  key: string,
+): { engine: string; workspacePath: string } | null {
+  if (!key.startsWith("new:")) return null;
+  const rest = key.slice(4);
+  const colon = rest.indexOf(":");
+  if (colon <= 0) return null;
+  return { engine: rest.slice(0, colon), workspacePath: rest.slice(colon + 1) };
 }
 
 export const OPEN_TABS_KEY = "ccgui-next.openTabs:v1";
@@ -95,7 +110,8 @@ function isActiveSession(t: unknown): t is ActiveSession {
     typeof tab.workspacePath === "string" &&
     (tab.sessionId === null || typeof tab.sessionId === "string") &&
     (tab.model === undefined || typeof tab.model === "string") &&
-    (tab.effort === undefined || typeof tab.effort === "string")
+    (tab.effort === undefined || typeof tab.effort === "string") &&
+    (tab.provider === undefined || typeof tab.provider === "string")
   );
 }
 

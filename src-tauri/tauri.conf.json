@@ -30,6 +30,9 @@
   },
   "bundle": {
     "active": true,
+    "resources": {
+      "resources/agent-catalogs": "agent-catalogs"
+    },
     "createUpdaterArtifacts": true,
     "targets": "all",
     "macOS": {

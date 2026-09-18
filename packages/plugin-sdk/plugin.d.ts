@@ -6,7 +6,7 @@
  * 插件仓用法（包未发布 npm 前的过渡方案）：复制本文件为插件仓的
  * `src/ccgui-plugin.d.ts`，首行版本戳必须与所用宿主 SDK 一致。
  *
- * @ccgui/plugin-sdk v0.3.6
+ * @ccgui/plugin-sdk v0.3.10
  */
 
 /** 宿主实现的 SDK 契约版本。 */
@@ -127,6 +127,16 @@ export interface PluginContext {
       key?: string;
       component: ComponentLike;
       order?: number;
+      /** 摆放区域（0.3.8 起）："start" = 左对齐区；缺省/"end" =
+       *  同步状态之后、版本号之前的既有槽位。 */
+      zone?: "start" | "end";
+    }): Disposer;
+    /** Composer 状态行条目（权限 ui:composer-status，0.3.9 起）：渲染在
+     *  输入框状态行（分支/上下文用量那一行）左组、分支切换器之后。 */
+    registerComposerStatusItem(def: {
+      key?: string;
+      component: ComponentLike;
+      order?: number;
     }): Disposer;
     /** ⌘K 命令面板命令（权限 ui:command）。 */
     registerCommand(def: {
@@ -185,8 +195,15 @@ export interface PluginContext {
     delete(key: string): Promise<void>;
   };
   events: {
-    /** 事件总线（权限 events）。宿主话题示例：`usage://updated`、
-     *  `composer://draft`（payload { text }，草稿变化/清空/会话切换均发射）。 */
+    /** 事件总线（权限 events）。宿主话题：`usage://updated`（引擎 usage
+     *  事件透传，payload 为完整 EngineEventPayload `{ runId, sessionId,
+     *  engine, seq, kind, data, ts? }`，data 是引擎原始 usage JSON）；
+     *  `usage://done`（0.3.8 起，引擎 done 事件透传，data.usage 携带
+     *  该轮最终用量——claude/grok 等只经 Done 上报用量的引擎由此对插件
+     *  可见）；`session://activated`（0.3.8 起，活动会话切换，payload
+     *  `{ engine, sessionId }`，pending 标签 sessionId 为 null，无活动
+     *  标签时两者皆 null）；`composer://draft`（payload { text }，草稿
+     *  变化/清空/会话切换均发射）。 */
     on(topic: string, cb: (data: unknown) => void): Disposer;
     emit(topic: string, data: unknown): void;
   };
@@ -216,6 +233,14 @@ export interface PluginContext {
    *  卸载时自动注销。 */
   sessions: {
     selectSession(engine: string, sessionId: string, workspacePath: string): Promise<void>;
+    /** 请求宿主立即刷新会话目录（侧栏/标签页），0.3.7 起。
+     *  插件绕过宿主直写会话数据（如 sqlite custom_title、转录 title 行）后
+     *  调用——否则变更要等用户手动同步或下次常规刷新才可见。 */
+    refresh(): Promise<void>;
+    /** 修改已有会话的 effort 档位，0.3.10 起。直写宿主会话状态并持久化
+     *  （等价于用户在会话内切换档位，refreshSessions 不会回滚）。未知会话
+     *  或空 effort 以 rejection 失败——不会创建幽灵会话条目。 */
+    setEffort(engine: string, sessionId: string, workspacePath: string, effort: string): Promise<void>;
     registerSource(def: {
       /** 源 id,插件内唯一;同 id 重复登记覆盖(热重载语义)。 */
       id: string;

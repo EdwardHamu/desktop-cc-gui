@@ -10,8 +10,10 @@ import {
   type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import GitMerge from "lucide-react/dist/esm/icons/git-merge";
 import Globe from "lucide-react/dist/esm/icons/globe";
+import Bot from "lucide-react/dist/esm/icons/bot";
 import {
   Button as AriaButton,
   Dialog as AriaDialog,
@@ -34,6 +36,8 @@ import { ComposerEditable } from "@/components/application/ai-chat/composer-edit
 import { ComposerToolbar } from "@/components/application/ai-chat/composer-toolbar";
 import { useMentionPicker } from "@/components/application/ai-chat/use-mention-picker";
 import { useSlashPicker } from "@/components/application/ai-chat/use-slash-picker";
+import { useAgentPicker } from "@/components/application/ai-chat/use-agent-picker";
+import { usePromptPicker } from "@/components/application/ai-chat/use-prompt-picker";
 import { useResizableComposer } from "@/components/application/ai-chat/use-resizable-composer";
 import {
   FILE_TAG_CLASS,
@@ -50,8 +54,22 @@ import {
 import { FileMentionMenu } from "@/components/application/ai-chat/file-mention-menu";
 import { SlashCommandMenu } from "@/components/application/ai-chat/slash-command-menu";
 import { findSlashTrigger } from "@/components/application/ai-chat/slash-commands";
+import {
+  AgentMenu,
+  CREATE_NEW_AGENT_ID,
+} from "@/components/application/ai-chat/agent-menu";
+import {
+  PromptMenu,
+  CREATE_NEW_PROMPT_PATH,
+} from "@/components/application/ai-chat/prompt-menu";
+import {
+  findBangTrigger,
+  findHashTrigger,
+} from "@/components/application/ai-chat/agent-prompt-triggers";
 import { type MentionEntry } from "@/components/application/ai-chat/mention-files";
-import { ipc, type SlashCommandEntry } from "@/lib/ipc";
+import { ipc, type AgentConfig, type CustomPromptEntry, type SlashCommandEntry } from "@/lib/ipc";
+import { useSelectedAgent } from "@/features/agents/selected-agent";
+import { useChatStore } from "@/features/chat/store";
 import { listenSettingsChanged } from "@/lib/events";
 import { useTauriEvent } from "@/hooks/use-tauri-event";
 import { joinPath } from "@/features/files/store";
@@ -62,6 +80,13 @@ import {
 } from "@/components/application/ai-chat/use-prompt-history";
 import { cx } from "@/utils/cx";
 import { useDismissOnOutsidePress, useTriggerToggle } from "@/utils/use-dismiss-on-outside-press";
+import {
+  compareByOrder,
+  composerStatusRegistry,
+  pluginIdFromRegistryKey,
+  useRegistry,
+} from "@ccgui/plugin-sdk";
+import { PluginBoundary } from "@/features/plugins/boundary/PluginBoundary";
 
 /**
  * Board UI → "ai_chat" composer + status bar, adapted to live data. The pill
@@ -157,13 +182,65 @@ export function Composer({
   const { slash, setSlash, slashMenuRef, updateSlashTrigger } =
     useSlashPicker({ editableRef, wrapperRef, workspacePath, value, lastEmittedRef });
 
-  // One detection pass per input, `/` first (desktop-cc-gui parity: a
-  // line-start slash owns the completion surface; `@` inside a slash query
-  // must not open the file picker on top of it).
+  // `#` agent picker and `!` prompt picker: same trigger-tracking model.
+  const { agent, setAgent, agentMenuRef, updateAgentTrigger } =
+    useAgentPicker({ editableRef, wrapperRef, workspacePath, value, lastEmittedRef });
+  const { prompt, setPrompt, promptMenuRef, updatePromptTrigger } =
+    usePromptPicker({ editableRef, wrapperRef, workspacePath, value, lastEmittedRef });
+
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  // The pinned agent is keyed per thread; draft tabs share a slot until the
+  // engine stamps a native session id (see selected-agent.ts).
+  const activeSessionId = useChatStore((s) => s.active?.sessionId ?? null);
+  const {
+    agent: selectedAgent,
+    select: selectAgent,
+    clear: clearSelectedAgent,
+  } = useSelectedAgent(workspacePath ?? "", activeSessionId);
+
+  // One detection pass per input, priority `/` > `@` > `#` > `!`
+  // (desktop-cc-gui parity: a line-start slash owns the completion surface;
+  // `@` inside a slash query must not open the file picker on top of it;
+  // only one picker is active at a time).
   const updateTriggers = useCallback(() => {
-    if (updateSlashTrigger()) setMention(null);
-    else updateMentionTrigger();
-  }, [updateSlashTrigger, updateMentionTrigger, setMention]);
+    if (updateSlashTrigger()) {
+      setMention(null);
+      setAgent(null);
+      setPrompt(null);
+      return;
+    }
+    // `@` outranks `#`/`!`; the mention hook's update returns void, so
+    // pre-check with the same finder its picker uses.
+    const el = editableRef.current;
+    const caret = el ? getCaretOffset(el) : -1;
+    if (
+      el &&
+      workspacePath &&
+      caret >= 0 &&
+      findMentionTrigger(extractText(el), caret)
+    ) {
+      updateMentionTrigger();
+      setAgent(null);
+      setPrompt(null);
+      return;
+    }
+    setMention(null);
+    if (updateAgentTrigger()) {
+      setPrompt(null);
+      return;
+    }
+    updatePromptTrigger();
+  }, [
+    updateSlashTrigger,
+    updateMentionTrigger,
+    updateAgentTrigger,
+    updatePromptTrigger,
+    setMention,
+    setAgent,
+    setPrompt,
+    workspacePath,
+  ]);
 
   const emitChange = useCallback(() => {
     const el = editableRef.current;
@@ -239,6 +316,70 @@ export function Composer({
       syncTags();
     },
     [emitChange, syncTags, setSlash],
+  );
+  /** Pin the picked agent to this thread and strip the `#query` trigger
+   *  from the field (the agent rides the message as a role block on send,
+   *  not as text). The create row jumps to the settings page instead. */
+  const handleAgentSelect = useCallback(
+    (entry: AgentConfig) => {
+      setAgent(null);
+      if (entry.id === CREATE_NEW_AGENT_ID) {
+        navigate("/settings?page=agentsPrompts");
+        return;
+      }
+      const el = editableRef.current;
+      if (!el) return;
+      selectAgent(entry);
+      const caret = getCaretOffset(el);
+      const text = extractText(el);
+      // Recompute the trigger at select time — the caret may have moved
+      // since the menu last sampled it.
+      const trigger = caret >= 0 ? findHashTrigger(text, caret) : null;
+      el.focus();
+      if (trigger) {
+        const next =
+          text.slice(0, trigger.start) +
+          text.slice(trigger.start + 1 + trigger.query.length);
+        el.innerHTML = sanitizeEditableHtml(htmlFromText(next));
+        setCaretOffset(el, trigger.start);
+      }
+      emitChange();
+      syncTags();
+    },
+    [emitChange, syncTags, setAgent, selectAgent, navigate],
+  );
+  /** Replace the active `!query` trigger with the picked prompt's content,
+   *  caret to the end of the inserted text. The create row jumps to the
+   *  settings page instead. */
+  const handlePromptSelect = useCallback(
+    (entry: CustomPromptEntry) => {
+      setPrompt(null);
+      if (entry.path === CREATE_NEW_PROMPT_PATH) {
+        navigate("/settings?page=agentsPrompts");
+        return;
+      }
+      const el = editableRef.current;
+      if (!el) return;
+      const caret = getCaretOffset(el);
+      const text = extractText(el);
+      // Recompute the trigger at select time — the caret may have moved
+      // since the menu last sampled it.
+      const trigger = caret >= 0 ? findBangTrigger(text, caret) : null;
+      el.focus();
+      if (!trigger) {
+        insertTextAtCaret(el, entry.content);
+      } else {
+        const next =
+          text.slice(0, trigger.start) +
+          entry.content +
+          text.slice(trigger.start + 1 + trigger.query.length);
+        el.innerHTML = sanitizeEditableHtml(htmlFromText(next));
+        setCaretOffset(el, trigger.start + entry.content.length);
+      }
+      emitChange();
+      syncTags();
+    },
+    [emitChange, syncTags, setPrompt, navigate],
   );
   // Ghost-text completion from prompt history (desktop-cc-gui parity):
   // suffix is painted via data-completion-suffix and accepted with Tab.
@@ -348,6 +489,16 @@ export function Composer({
         isResizing={isResizing}
         isCollapsed={isCollapsed}
       />
+      {/* TEMP DEBUG: remove after # / ! picker diagnosis */}
+      <DebugProbe
+        probe={{
+          ws: workspacePath ?? null,
+          agent,
+          prompt,
+          slash: slash?.query ?? null,
+          text: value ?? "",
+        }}
+      />
       {!isCollapsed && mention && workspacePath && (
         <FileMentionMenu
           root={workspacePath}
@@ -368,6 +519,51 @@ export function Composer({
           menuRef={slashMenuRef}
         />
       )}
+      {!isCollapsed && agent && workspacePath && (
+        <AgentMenu
+          query={agent.query}
+          left={agent.left}
+          onSelect={handleAgentSelect}
+          onClose={() => setAgent(null)}
+          menuRef={agentMenuRef}
+        />
+      )}
+      {!isCollapsed && prompt && workspacePath && (
+        <PromptMenu
+          root={workspacePath}
+          query={prompt.query}
+          left={prompt.left}
+          onSelect={handlePromptSelect}
+          onClose={() => setPrompt(null)}
+          menuRef={promptMenuRef}
+        />
+      )}
+
+      {/* Pinned-agent chip above the input, styled after the attachment
+          chips (ConversationFooter); × clears the selection. */}
+      {!isCollapsed && selectedAgent && (
+        <div className="flex flex-wrap gap-1.5 px-1.5">
+          <span className="inline-flex items-center gap-1 rounded-full bg-background-tertiary-default py-0.5 pl-2 text-caption-1-medium text-text-secondary">
+            {selectedAgent.icon ? (
+              <span aria-hidden>{selectedAgent.icon}</span>
+            ) : (
+              <Bot
+                aria-hidden
+                className="size-3.5 shrink-0 text-foreground-icon-secondary"
+              />
+            )}
+            <span className="max-w-48 truncate">{selectedAgent.name}</span>
+            <button
+              type="button"
+              aria-label={t("chat.selectedAgentRemove")}
+              onClick={clearSelectedAgent}
+              className="cursor-pointer rounded-full px-1 hover:text-text-primary"
+            >
+              ×
+            </button>
+          </span>
+        </div>
+      )}
 
       {!isCollapsed && (
         <ComposerEditable
@@ -375,12 +571,16 @@ export function Composer({
           sendShortcut={sendShortcut}
           mentionOpen={mention != null}
           slashOpen={slash != null}
+          agentOpen={agent != null}
+          promptOpen={prompt != null}
           completionSuffix={completion.suffix}
           acceptCompletion={completion.accept}
           setEditableText={setEditableText}
           handleHistoryKeyDown={handleHistoryKeyDown}
           mentionMenuRef={mentionMenuRef}
           slashMenuRef={slashMenuRef}
+          agentMenuRef={agentMenuRef}
+          promptMenuRef={promptMenuRef}
           isComposingRef={isComposingRef}
           lastCompositionEndTimeRef={lastCompositionEndTimeRef}
           setIsComposing={setIsComposing}
@@ -407,6 +607,16 @@ export function Composer({
       )}
     </div>
   );
+}
+
+/** TEMP DEBUG: beacon composer trigger state to the vite dev server
+ *  (CPS-safe same-origin fetch). Remove after diagnosis. */
+function DebugProbe({ probe }: { probe: Record<string, unknown> }) {
+  const json = JSON.stringify(probe);
+  useEffect(() => {
+    fetch("/__dbg?" + encodeURIComponent(json)).catch(() => {});
+  }, [json]);
+  return null;
 }
 
 /* -------------------------------------------------------------- status bar */
@@ -540,6 +750,7 @@ function ContextRing({ pct }: { pct: number }) {
 export function StatusBar({
   branch,
   branches,
+  branchRepoName,
   onBranchSelect,
   folders,
   selectedFolder,
@@ -556,6 +767,9 @@ export function StatusBar({
   branch?: string;
   /** Local branches for the switcher; empty until the first load. */
   branches?: BranchMenuItem[];
+  /** Repository display name when the chip tracks a nested repo (file-tree
+   *  selection inside a subfolder repository); prefixes the branch label. */
+  branchRepoName?: string;
   /** Present → the branch label becomes a switcher dropdown. */
   onBranchSelect?: (name: string) => void;
   /** Workspace folder display names. */
@@ -584,6 +798,9 @@ export function StatusBar({
     contextPopoverRef,
   ]);
   const allowContextOpenChange = useTriggerToggle(contextOpen, contextTriggerRef);
+  // Plugin chips (SDK 0.3.9, permission ui:composer-status) render in the
+  // left group after the branch switcher, each behind its own boundary.
+  const pluginItems = useRegistry(composerStatusRegistry);
   const limitsContext = useMemo(
     () => ({ max: contextMax ?? ASSUMED_CONTEXT_WINDOW, segments: contextSegments ?? [] }),
     [contextMax, contextSegments],
@@ -618,6 +835,7 @@ export function StatusBar({
             <BranchMenu
               branches={branches ?? []}
               currentName={branch}
+              repoName={branchRepoName}
               onSelect={onBranchSelect}
             />
           ) : (
@@ -631,6 +849,15 @@ export function StatusBar({
               </span>
             </span>
           ))}
+        {[...pluginItems].sort(compareByOrder).map((def) => {
+          const pluginId = pluginIdFromRegistryKey(def.id);
+          const Chip = def.component;
+          return (
+            <PluginBoundary key={def.id} pluginId={pluginId}>
+              <Chip />
+            </PluginBoundary>
+          );
+        })}
       </div>
       <div className="flex items-center gap-3">
         <ProxyQuickToggle />
