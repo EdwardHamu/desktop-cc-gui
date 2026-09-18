@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import Bot from "lucide-react/dist/esm/icons/bot";
-import Copy from "lucide-react/dist/esm/icons/copy";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
-import Eye from "lucide-react/dist/esm/icons/eye";
 import {
   SettingsCard,
   SettingsSectionLabel,
@@ -12,7 +9,6 @@ import { Button } from "@/components/base/buttons/button";
 import { EmptyState } from "@/components/base/empty-state";
 import { Input } from "@/components/base/input/input";
 import { Switch } from "@/components/base/switch/switch";
-import { ModalShell } from "@/components/dialogs";
 import {
   currentCatalogLocale,
   useAgentStore,
@@ -22,46 +18,15 @@ import {
   ipc,
   type BuiltInAgentCatalogView,
   type BuiltInAgentDivisionView,
-  type BuiltInAgentPrompt,
   type BuiltInAgentView,
 } from "@/lib/ipc";
 import { openExternal } from "@/lib/platform";
-import { cx } from "@/utils/cx";
-import { ROW } from "../CliChannelRow";
-
-/** Same affordance the agent rows use: bare icon, hover-revealed chrome. */
-const ICON_BUTTON =
-  "flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-lg text-foreground-icon-secondary transition-colors hover:bg-background-secondary-hover hover:text-foreground-icon-primary";
-
-/** Division filter chip (全部 + one per division). */
-const chipClass = (active: boolean) =>
-  cx(
-    "flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-2 py-0.5 text-caption-1-regular transition-colors",
-    active
-      ? "border-border-button-active bg-background-tertiary-default text-text-primary"
-      : "border-border-button-default text-text-secondary hover:bg-background-secondary-hover",
-  );
-
-/** Small division badge: color swatch from the catalog + localized label. */
-function DivisionBadge({ division }: { division: BuiltInAgentDivisionView | undefined }) {
-  if (!division) return null;
-  return (
-    <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border-button-default px-1.5 py-0.5 text-caption-1-regular text-text-tertiary">
-      <span
-        aria-hidden
-        className="size-1.5 rounded-full"
-        style={{ backgroundColor: division.color }}
-      />
-      {division.label}
-    </span>
-  );
-}
-
-interface PromptViewState {
-  agent: BuiltInAgentView;
-  prompt: BuiltInAgentPrompt | null;
-  error: string | null;
-}
+import {
+  BuiltInAgentRow,
+  DivisionFilterChips,
+  PromptPreviewModal,
+  type PromptViewState,
+} from "./BuiltInAgentSections";
 
 /**
  * Built-in agent catalog tab: summary (enabled count, source link,
@@ -269,61 +234,15 @@ export function BuiltInAgentsPane({ onCopied }: { onCopied: () => void }) {
         </div>
       </div>
 
-      <div
-        className="flex flex-wrap items-center gap-1.5"
-        aria-label={t("settings.agentBuiltInDivisions")}
-      >
-        <button
-          type="button"
-          className={chipClass(divisionId === null)}
-          onClick={() => setDivisionId(null)}
-        >
-          {t("settings.agentBuiltInAll")}
-          <span className="text-text-tertiary">
-            {enabledCount}/{catalog.agents.length}
-          </span>
-        </button>
-        {catalog.divisions.map((division) => (
-          <button
-            key={division.id}
-            type="button"
-            className={chipClass(divisionId === division.id)}
-            onClick={() =>
-              setDivisionId(divisionId === division.id ? null : division.id)
-            }
-          >
-            <span
-              aria-hidden
-              className="size-1.5 rounded-full"
-              style={{ backgroundColor: division.color }}
-            />
-            {division.label}
-            <span className="text-text-tertiary">
-              {division.enabledCount}/{division.count}
-            </span>
-          </button>
-        ))}
-        {divisionId && (
-          <span className="ml-auto flex items-center gap-1">
-            <Button
-              size="small"
-              variant="secondary"
-              disabled={divisionPending}
-              onClick={() => toggleDivision(true)}
-            >
-              {t("settings.agentBuiltInEnableDivision")}
-            </Button>
-            <Button
-              size="small"
-              variant="secondary"
-              disabled={divisionPending}
-              onClick={() => toggleDivision(false)}
-            >
-              {t("settings.agentBuiltInDisableDivision")}
-            </Button>
-          </span>
-        )}
-      </div>
+      <DivisionFilterChips
+        divisions={catalog.divisions}
+        selectedId={divisionId}
+        enabledCount={enabledCount}
+        totalCount={catalog.agents.length}
+        divisionPending={divisionPending}
+        onSelect={setDivisionId}
+        onToggleDivision={toggleDivision}
+      />
 
       {visibleAgents.length === 0 ? (
         <EmptyState className="flex-col gap-1 rounded-2xl border border-dashed border-border-button-default px-4 py-8">
@@ -334,99 +253,27 @@ export function BuiltInAgentsPane({ onCopied }: { onCopied: () => void }) {
       ) : (
         <SettingsCard>
           {visibleAgents.map((agent) => (
-            <div key={agent.id} className={ROW}>
-              <span className="flex size-9 shrink-0 items-center justify-center rounded-2lg bg-background-tertiary-default text-foreground-icon-primary">
-                {agent.icon ? (
-                  <span className="text-base leading-none" aria-hidden>
-                    {agent.icon}
-                  </span>
-                ) : (
-                  <Bot className="size-4" aria-hidden />
-                )}
-              </span>
-              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <p className="flex items-center gap-2 text-body-regular text-text-primary">
-                  <span className="truncate">{agent.name}</span>
-                  <DivisionBadge division={divisionById.get(agent.divisionId)} />
-                </p>
-                {agent.description && (
-                  <p
-                    className="truncate text-body-2-regular text-text-secondary"
-                    title={agent.description}
-                  >
-                    {agent.description}
-                  </p>
-                )}
-              </div>
-              <button
-                type="button"
-                aria-label={t("settings.agentBuiltInViewPrompt")}
-                title={t("settings.agentBuiltInViewPrompt")}
-                onClick={() => viewPrompt(agent)}
-                className={ICON_BUTTON}
-              >
-                <Eye className="size-4" aria-hidden />
-              </button>
-              <button
-                type="button"
-                aria-label={t("settings.agentBuiltInCopy")}
-                title={t("settings.agentBuiltInCopy")}
-                disabled={copyingId === agent.id}
-                onClick={() => copyAsCustom(agent)}
-                className={cx(ICON_BUTTON, "disabled:cursor-default disabled:opacity-50")}
-              >
-                <Copy className="size-4" aria-hidden />
-              </button>
-              <Switch
-                size="sm"
-                aria-label={t("settings.agentBuiltInToggle", { name: agent.name })}
-                isSelected={agent.enabled}
-                isDisabled={pending.has(agent.id)}
-                onChange={(enabled) => toggleAgent(agent, enabled)}
-              />
-            </div>
+            <BuiltInAgentRow
+              key={agent.id}
+              agent={agent}
+              division={divisionById.get(agent.divisionId)}
+              pending={pending.has(agent.id)}
+              copying={copyingId === agent.id}
+              onViewPrompt={viewPrompt}
+              onCopy={copyAsCustom}
+              onToggle={toggleAgent}
+            />
           ))}
         </SettingsCard>
       )}
 
       {promptView && (
-        <ModalShell
+        <PromptPreviewModal
+          state={promptView}
+          copying={copyingId === promptView.agent.id}
           onClose={() => setPromptView(null)}
-          label={promptView.agent.name}
-          className="flex max-h-[calc(100dvh-64px)] w-[560px] max-w-[calc(100vw-32px)] flex-col"
-        >
-          <p className="flex items-center gap-2 text-title-3-medium text-text-primary">
-            {promptView.agent.icon && (
-              <span aria-hidden>{promptView.agent.icon}</span>
-            )}
-            {promptView.agent.name}
-          </p>
-          <div className="mt-3 min-h-0 flex-1 overflow-y-auto rounded-2lg bg-background-tertiary-default p-3">
-            {promptView.error ? (
-              <p role="alert" className="text-body-regular text-text-error-primary">
-                {promptView.error}
-              </p>
-            ) : promptView.prompt ? (
-              <pre className="whitespace-pre-wrap font-mono text-body-2-regular text-text-secondary">
-                {promptView.prompt.prompt}
-              </pre>
-            ) : (
-              <p className="text-body-regular text-text-tertiary">
-                {t("settings.agentBuiltInPromptLoading")}
-              </p>
-            )}
-          </div>
-          <div className="mt-4 flex justify-end gap-2">
-            <Button
-              size="small"
-              leadingIcon={Copy}
-              disabled={!promptView.prompt || copyingId === promptView.agent.id}
-              onClick={() => copyAsCustom(promptView.agent)}
-            >
-              {t("settings.agentBuiltInCopy")}
-            </Button>
-          </div>
-        </ModalShell>
+          onCopy={copyAsCustom}
+        />
       )}
     </div>
   );
