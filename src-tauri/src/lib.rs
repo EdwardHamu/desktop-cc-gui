@@ -69,6 +69,8 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let db = Arc::new(db::Db::open().expect("failed to open app db"));
+            // Sweep per-send credential staging left behind by a crash.
+            engine::sweep_staging_dirs();
             if let Err(error) = db::import_legacy_workspaces_once(&db) {
                 // Import failure must never block startup; the sidebar simply
                 // starts empty and the user adds workspaces by hand.
@@ -182,6 +184,7 @@ pub fn run() {
             // 保留 DWM 阴影与四边缩放），macOS 保持 Overlay + 系统原生红绿灯（与原配置
             // 一致）。放在 manage(state) 之后：窗口一开始加载前端就会 invoke 命令，
             // 状态必须已经就位。设置改动需重启应用。
+            #[cfg(target_os = "windows")]
             let settings = settings::read_settings().unwrap_or_default();
             let mut window_builder =
                 tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
@@ -281,6 +284,7 @@ pub fn run() {
             history::reader::rename_session,
             history::reader::remember_session_model,
             history::reader::remember_session_effort,
+            history::reader::remember_session_provider,
             history::reader::rescan_sessions,
             history::reader::list_workspaces,
             history::reader::add_workspace,

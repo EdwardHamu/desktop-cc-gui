@@ -347,6 +347,16 @@ export function createPluginContext(
           m.useChatStore.getState().refreshSessions(),
         );
       },
+      setEffort(engine, sessionId, workspacePath, effort) {
+        requirePermission("host:session");
+        // 校验失败走 rejection（与 selectSession 一致）。store 侧拒绝未知
+        // 会话键——错误的 workspacePath 不得经 patchSession 造出幽灵条目。
+        return Promise.resolve().then(() =>
+          import("@/features/chat/store").then((m) =>
+            m.setPluginSessionEffort(engine, sessionId, workspacePath, effort),
+          ),
+        );
+      },
       registerSource(def) {
         requirePermission("host:session");
         // 入口校验:不合规 def 同步抛回插件(登记期 bug 应当即暴露),
